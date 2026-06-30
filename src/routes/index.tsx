@@ -1,29 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/lib/theme";
+import { AuthProvider } from "@/lib/auth";
+import { FraudApp } from "@/components/FraudApp";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Your App" },
-      { name: "description", content: "Replace this with a one-sentence description of your app." },
-      { property: "og:title", content: "Your App" },
-      { property: "og:description", content: "Replace this with a one-sentence description of your app." },
+      { title: "AppsFlyer PAF Fraud Analysis" },
+      { name: "description", content: "Scalable AppsFlyer protect-against-fraud analysis console with click-fraud, bot, and event-integrity detection." },
+      { property: "og:title", content: "AppsFlyer PAF Fraud Analysis" },
+      { property: "og:description", content: "Detect click injection, install hijacking, bot farms, and event fraud from AppsFlyer raw exports." },
     ],
   }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <ThemeProvider>
+      <AuthProvider>
+        <FraudApp />
+        <Toaster richColors position="top-right" />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
