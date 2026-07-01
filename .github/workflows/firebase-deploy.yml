@@ -1,10 +1,8 @@
 name: Deploy to Firebase Hosting
-
 on:
   push:
     branches:
       - main
-
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
@@ -19,10 +17,18 @@ jobs:
 
       - name: Install Dependencies
         run: bun install
+
       - name: Build Project
+        run: bun run build
+
+      - name: Verify build output
         run: |
-          bun run build
-          echo '<!DOCTYPE html><html><head><meta charset="utf-8"><script type="module" src="/assets/index-vFgSHgEL.js"></script></head><body><div id="app"></div></body></html>' > .output/public/index.html
+          if [ ! -f .output/public/index.html ]; then
+            echo "❌ index.html not found — prerendering did not run. Check vite.config.ts prerender settings."
+            exit 1
+          fi
+          echo "✅ index.html generated correctly"
+          ls -la .output/public
 
       - name: Deploy to Firebase
         run: bunx firebase-tools deploy --only hosting --project farg-e74ca --token ${{ secrets.FIREBASE_TOKEN }}
