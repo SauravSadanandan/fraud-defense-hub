@@ -36,18 +36,19 @@ function Empty({ msg }: { msg: string }) {
 export function DataTables({
   result,
   state,
-  selectedPid,
+  pidSet,
 }: {
   result: AnalysisResult;
   state: DashboardState;
-  selectedPid: string;
+  pidSet: Set<string> | null;
 }) {
   const [flaggedLimit, setFlaggedLimit] = useState(50);
   const signals = Object.entries(state.bySignal).sort((a, b) => b[1] - a[1]);
   const flaggedAll = result.mode === "Event" ? result.flaggedEvents : result.flaggedInstalls;
-  const flagged = selectedPid === "All" ? flaggedAll : flaggedAll.filter((e) => e.mediaSource === selectedPid);
-  const publishers =
-    selectedPid === "All" ? result.publishers : result.publishers.filter((p) => p.mediaSource === selectedPid);
+  const flagged = pidSet ? flaggedAll.filter((e) => pidSet.has(e.mediaSource)) : flaggedAll;
+  const publishers = pidSet
+    ? result.publishers.filter((p) => pidSet.has(p.mediaSource))
+    : result.publishers;
 
   return (
     <Card className="rounded-2xl p-1">

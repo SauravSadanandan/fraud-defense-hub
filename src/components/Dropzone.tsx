@@ -70,7 +70,7 @@ export function Dropzone({
         if (file) handleFile(file);
       }}
       className={cn(
-        "relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-card/50 px-6 py-12 text-center transition-colors",
+        "relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border bg-card/50 px-6 py-8 text-center transition-colors",
         dragging && "border-primary bg-accent/40",
       )}
     >
@@ -97,16 +97,15 @@ export function Dropzone({
         </div>
       ) : (
         <>
-          <span className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-accent text-primary">
-            <UploadCloud className="size-7" />
+          <span className="mb-3 flex size-11 items-center justify-center rounded-xl bg-accent text-primary">
+            <UploadCloud className="size-6" />
           </span>
-          <h3 className="text-base font-semibold">Drag & drop your {mode} raw data</h3>
-          <p className="mt-1 max-w-md text-sm text-muted-foreground">
+          <h3 className="text-sm font-semibold">Drag &amp; drop your {mode} export</h3>
+          <p className="mt-0.5 max-w-xs text-xs text-muted-foreground">
             Accepts <span className="font-medium text-foreground">.csv</span> and{" "}
-            <span className="font-medium text-foreground">.xlsx</span> AppsFlyer exports. Handles 50k+ rows off the main
-            thread.
+            <span className="font-medium text-foreground">.xlsx</span> AppsFlyer files.
           </p>
-          <Button className="mt-5" onClick={() => inputRef.current?.click()}>
+          <Button size="sm" className="mt-4" onClick={() => inputRef.current?.click()}>
             Choose file
           </Button>
         </>

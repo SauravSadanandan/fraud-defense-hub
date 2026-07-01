@@ -25,6 +25,7 @@ export interface DatasetMeta {
   totalRows: number;
   flaggedRows: number;
   generatedAt: number;
+  pids: string[];
 }
 
 function trim(result: AnalysisResult): AnalysisResult {
@@ -50,6 +51,7 @@ export async function saveAnalysis(result: AnalysisResult, label: string): Promi
       totalRows: result.totalRows,
       flaggedRows: result.flaggedRows,
       generatedAt: result.generatedAt,
+      pids: result.pids.slice(0, 500),
       result: JSON.stringify(trim(result)),
     };
     const ref = await addDoc(collection(fb.db, COLLECTION), payload);
@@ -80,6 +82,7 @@ export async function listAnalyses(): Promise<DatasetMeta[]> {
         totalRows: v.totalRows || 0,
         flaggedRows: v.flaggedRows || 0,
         generatedAt: v.generatedAt || 0,
+        pids: Array.isArray(v.pids) ? (v.pids as string[]) : [],
       };
     });
   } catch (e) {
