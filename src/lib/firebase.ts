@@ -6,7 +6,7 @@ import { getFirestore, type Firestore } from "firebase/firestore";
 // Your data is protected by Firebase Auth + Firestore Security Rules,
 // not by hiding these values. See firestore.rules / DEPLOY.md.
 export const firebaseConfig = {
-  apiKey: "AIzaSyD-placeholder-replace-with-real-key",
+  apiKey: "AIzaSyCkwRb-GfPCgqKcAOwRUGvWH8xtv1zL128",
   authDomain: "farg-e74ca.firebaseapp.com",
   projectId: "farg-e74ca",
   storageBucket: "farg-e74ca.firebasestorage.app",
