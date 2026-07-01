@@ -19,10 +19,10 @@ jobs:
 
       - name: Install Dependencies
         run: bun install
-- name: Build Project
+      - name: Build Project
         run: |
           bun run build
-          echo '<!24OCTYPE html><html><head><meta charset="utf-8"><script type="module" src="/assets/index-vFgSHgEL.js"></script></head><body><div id="app"></div></body></html>' > .output/public/index.html
+          echo '<!DOCTYPE html><html><head><meta charset="utf-8"><script type="module" src="/assets/index-vFgSHgEL.js"></script></head><body><div id="app"></div></body></html>' > .output/public/index.html
 
       - name: Deploy to Firebase
         run: bunx firebase-tools deploy --only hosting --project farg-e74ca --token ${{ secrets.FIREBASE_TOKEN }}
