@@ -37,14 +37,22 @@ const tooltipStyle = {
   fontSize: 12,
 };
 
-export function DashboardCharts({ data, selectedPid }: { data: DashboardState; selectedPid: string }) {
+export function DashboardCharts({
+  data,
+  scope,
+  label,
+}: {
+  data: DashboardState;
+  scope: "all" | "publisher" | "pid";
+  label: string;
+}) {
   const reasonData = Object.entries(data.byReason)
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1])
     .map(([name, value]) => ({ name, value }));
 
   const topSource =
-    selectedPid === "All"
+    scope === "all"
       ? Object.entries(data.byMedia)
       : Object.entries(data.bySiteId);
   const barData = topSource
@@ -83,7 +91,7 @@ export function DashboardCharts({ data, selectedPid }: { data: DashboardState; s
       <Card className="rounded-2xl">
         <CardHeader>
           <CardTitle className="text-sm">
-            {selectedPid === "All" ? "Top 10 Media Sources" : `Top 10 Site IDs — ${selectedPid}`}
+            {scope === "all" ? "Top 10 Media Sources" : `Top 10 Site IDs — ${label}`}
           </CardTitle>
         </CardHeader>
         <CardContent>

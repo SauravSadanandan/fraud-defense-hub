@@ -15,7 +15,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Login } from "@/components/Login";
 import { Workspace } from "@/components/Workspace";
 import { Dashboard } from "@/components/Dashboard";
-import { HistoryPanel } from "@/components/HistoryPanel";
+import { DataBrowser } from "@/components/DataBrowser";
 import { useAuth } from "@/lib/auth";
 import type { AnalysisResult } from "@/engine/types";
 
@@ -45,7 +45,7 @@ function Shell() {
                 <Plus className="size-4" /> New analysis
               </Button>
             )}
-            <HistoryPanel
+            <DataBrowser
               refreshKey={refreshKey}
               onLoad={(r, label) => {
                 setResult(r);
