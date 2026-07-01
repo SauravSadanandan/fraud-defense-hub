@@ -3,6 +3,11 @@ on:
   push:
     branches:
       - main
+
+concurrency:
+  group: firebase-deploy
+  cancel-in-progress: true
+
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
@@ -21,8 +26,14 @@ jobs:
       - name: Build Project
         run: bun run build
 
-      - name: Debug - show full dist tree
-        run: find dist -type f | sort
+      - name: Verify build output
+        run: |
+          if [ ! -f dist/client/index.html ]; then
+            echo "❌ index.html not found in dist/client/"
+            exit 1
+          fi
+          echo "✅ index.html generated correctly"
+          ls -la dist/client
 
       - name: Deploy to Firebase
         run: bunx firebase-tools deploy --only hosting --project farg-e74ca --token ${{ secrets.FIREBASE_TOKEN }}
