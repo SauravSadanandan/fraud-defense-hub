@@ -21,7 +21,7 @@ jobs:
         run: bun install
 
       - name: Build Project
-        run: NITRO_PRESET=firebase bun run build
+        run: bun run build
 
       - name: Deploy to Firebase
         run: bunx firebase-tools deploy --only hosting --project farg-e74ca --token ${{ secrets.FIREBASE_TOKEN }}
