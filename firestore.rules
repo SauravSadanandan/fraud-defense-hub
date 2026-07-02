@@ -6,6 +6,12 @@ service cloud.firestore {
     // checks if you add per-user ownership later.
     match /fraud_datasets/{docId} {
       allow read, write: if request.auth != null;
+
+      // Chunked payload storage for analyses that exceed Firestore's
+      // 1 MiB single-document limit.
+      match /chunks/{chunkId} {
+        allow read, write: if request.auth != null;
+      }
     }
     // Publisher <-> PID mappings (keyed per app to allow re-brokering).
     match /publisher_map/{docId} {
