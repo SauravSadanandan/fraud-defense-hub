@@ -36,4 +36,9 @@ jobs:
           ls -la dist/client
 
       - name: Deploy to Firebase
-        run: bunx firebase-tools deploy --only hosting --project farg-e74ca --token ${{ secrets.FIREBASE_TOKEN }}
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
+          projectId: farg-e74ca
+          channelId: live
