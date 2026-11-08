@@ -1,6 +1,6 @@
-import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getAuth, signInAnonymously, type Auth } from "firebase/auth";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { initializeApp, getApps, deleteApp, type FirebaseApp } from "firebase/app";
+import { getAuth, connectAuthEmulator, type Auth } from "firebase/auth";
+import { getFirestore, connectFirestoreEmulator, type Firestore } from "firebase/firestore";
 
 // Firebase web config is a PUBLIC identifier set — safe to commit.
 // Your data is protected by Firebase Auth + Firestore Security Rules,
@@ -23,27 +23,58 @@ let _db: Firestore | null = null;
 export function getFirebase(): { app: FirebaseApp; auth: Auth; db: Firestore } | null {
   if (typeof window === "undefined") return null;
   if (!_app) {
-    _app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+    const existing = getApps().find((a) => a.name === "[DEFAULT]");
+    _app = existing || initializeApp(firebaseConfig);
     _auth = getAuth(_app);
     _db = getFirestore(_app);
+
+    if (import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === "true") {
+      try {
+        connectAuthEmulator(_auth, "http://127.0.0.1:9099", { disableWarnings: true });
+      } catch {
+        // already connected
+      }
+      try {
+        connectFirestoreEmulator(_db, "127.0.0.1", 8080);
+      } catch {
+        // already connected
+      }
+    }
   }
   return { app: _app!, auth: _auth!, db: _db! };
 }
 
-// Best-effort anonymous session so Firestore writes work under the default
-// admin login. If anonymous auth is disabled in the Firebase console this
-// fails silently and the app keeps working fully client-side.
-let anonTried = false;
-export async function ensureFirebaseSession(): Promise<boolean> {
-  const fb = getFirebase();
-  if (!fb) return false;
-  if (fb.auth.currentUser) return true;
-  if (anonTried) return !!fb.auth.currentUser;
-  anonTried = true;
-  try {
-    await signInAnonymously(fb.auth);
-    return true;
-  } catch {
-    return false;
+/**
+ * Creates an isolated secondary auth instance (named "invite-secondary")
+ * to create new user accounts without affecting the primary signed-in session.
+ */
+export function createSecondaryAuth(): { auth: Auth; cleanup: () => Promise<void> } {
+  const name = "invite-secondary";
+  const existing = getApps().find((a) => a.name === name);
+  const secondaryApp = existing || initializeApp(firebaseConfig, name);
+  const secondaryAuth = getAuth(secondaryApp);
+
+  if (import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === "true") {
+    try {
+      connectAuthEmulator(secondaryAuth, "http://127.0.0.1:9099", { disableWarnings: true });
+    } catch {
+      // already connected
+    }
   }
+
+  const cleanup = async () => {
+    try {
+      const { signOut } = await import("firebase/auth");
+      await signOut(secondaryAuth);
+    } catch {
+      /* ignore */
+    }
+    try {
+      await deleteApp(secondaryApp);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return { auth: secondaryAuth, cleanup };
 }
