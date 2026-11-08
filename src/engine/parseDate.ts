@@ -35,7 +35,11 @@ export function parseDate(value: unknown): ParsedDate | null {
     const day = +a > 12 ? +a : +a;
     const mon = +a > 12 ? +b : +b;
     const ms = Date.UTC(+y, mon - 1, day, +h, +mi, s ? +s : 0);
-    return { ms, hour: +h, date: `${y}-${String(mon).padStart(2, "0")}-${String(day).padStart(2, "0")}` };
+    return {
+      ms,
+      hour: +h,
+      date: `${y}-${String(mon).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    };
   }
   // date only yyyy-MM-dd
   m = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);

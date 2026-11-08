@@ -1,3 +1,5 @@
+import type { Settings } from "./config";
+
 export interface EnrichedRow {
   rowIndex: number;
   appsflyerId: string;
@@ -13,6 +15,7 @@ export interface EnrichedRow {
   gaid: string;
   gaidCount: number;
   idfa: string;
+  platform?: string;
   mediaSource: string;
   siteId: string;
   campaign: string;
@@ -95,5 +98,8 @@ export interface AnalysisResult {
   flaggedInstalls: EnrichedRow[];
   flaggedEvents: EnrichedRow[];
   funnel: { events: string[]; counts: number[] } | null;
+  settings?: Settings;
+  profileId?: string;
+  profileName?: string;
   generatedAt: number;
 }

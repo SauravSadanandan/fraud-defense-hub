@@ -2,20 +2,53 @@ import type { AnalysisResult, DashboardState } from "@/engine/types";
 import { pubKey, type PublisherMap } from "./publishers";
 
 const NUM_KEYS = [
-  "total", "clickFlood", "hijack", "bots", "zeroGaid", "ctitHigh", "ctitLow",
-  "deviceCluster", "timeOfDay", "sdkMismatch", "carrierMismatch", "zeroEvents",
-  "missingFunnel", "uniformTiming",
+  "total",
+  "clickFlood",
+  "hijack",
+  "bots",
+  "zeroGaid",
+  "ctitHigh",
+  "ctitLow",
+  "deviceCluster",
+  "timeOfDay",
+  "sdkMismatch",
+  "carrierMismatch",
+  "zeroEvents",
+  "missingFunnel",
+  "uniformTiming",
 ] as const;
 
-const REC_KEYS = ["byReason", "bySubReason", "byMedia", "bySignal", "bySiteId", "ctitBuckets"] as const;
+const REC_KEYS = [
+  "byReason",
+  "bySubReason",
+  "byMedia",
+  "bySignal",
+  "bySiteId",
+  "ctitBuckets",
+] as const;
 
 export function emptyState(): DashboardState {
   return {
-    total: 0, clickFlood: 0, hijack: 0, bots: 0, zeroGaid: 0, ctitHigh: 0, ctitLow: 0,
-    deviceCluster: 0, timeOfDay: 0, sdkMismatch: 0, carrierMismatch: 0, zeroEvents: 0,
-    missingFunnel: 0, uniformTiming: 0,
-    byReason: {}, bySubReason: {}, byMedia: {}, bySignal: {}, bySiteId: {},
-    ctitBuckets: { "Inject (<10s)": 0, "Suspicious (10s-1m)": 0, "Normal (1m-24h)": 0, "Flood (>24h)": 0 },
+    total: 0,
+    clickFlood: 0,
+    hijack: 0,
+    bots: 0,
+    zeroGaid: 0,
+    ctitHigh: 0,
+    ctitLow: 0,
+    deviceCluster: 0,
+    timeOfDay: 0,
+    sdkMismatch: 0,
+    carrierMismatch: 0,
+    zeroEvents: 0,
+    missingFunnel: 0,
+    uniformTiming: 0,
+    byReason: {},
+    bySubReason: {},
+    byMedia: {},
+    bySignal: {},
+    bySiteId: {},
+    ctitBuckets: {},
   };
 }
 
@@ -44,7 +77,11 @@ export interface ResolvedView {
 }
 
 // selection: "all" | `pub:<name>` | `pid:<pid>`
-export function resolveView(result: AnalysisResult, map: PublisherMap, selection: string): ResolvedView {
+export function resolveView(
+  result: AnalysisResult,
+  map: PublisherMap,
+  selection: string,
+): ResolvedView {
   if (!selection || selection === "all") {
     return { scope: "all", label: "All media sources", pids: result.pids, state: result.data.All };
   }

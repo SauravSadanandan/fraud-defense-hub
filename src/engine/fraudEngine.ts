@@ -1,4 +1,5 @@
-import { CONFIG, COL, type Settings } from "./config";
+import { CONFIG, COL, normalizeSettings, type Settings } from "./config";
+import { ctitBucketLabels } from "./labels";
 import { parseDate } from "./parseDate";
 import type {
   EnrichedRow,
@@ -14,7 +15,9 @@ type Row = unknown[];
 function buildIndex(headers: string[]): Record<string, number> {
   const idx: Record<string, number> = {};
   headers.forEach((h, i) => {
-    const key = String(h ?? "").trim().toLowerCase();
+    const key = String(h ?? "")
+      .trim()
+      .toLowerCase();
     if (key && !(key in idx)) idx[key] = i;
   });
   return idx;
@@ -28,7 +31,8 @@ function getVal(row: Row, idx: Record<string, number>, col: string): string {
   return typeof v === "string" ? v : String(v);
 }
 
-export function enrichRows(headers: string[], rows: Row[], settings: Settings): EnrichedRow[] {
+export function enrichRows(headers: string[], rows: Row[], rawSettings?: Settings): EnrichedRow[] {
+  const settings = normalizeSettings(rawSettings);
   const idx = buildIndex(headers);
   const ipMap: Record<string, number> = {};
   const gaidMap: Record<string, number> = {};
@@ -60,7 +64,8 @@ export function enrichRows(headers: string[], rows: Row[], settings: Settings): 
       if (!sdkBySource[mediaSource]) sdkBySource[mediaSource] = {};
       sdkBySource[mediaSource][sdkVersion] = (sdkBySource[mediaSource][sdkVersion] || 0) + 1;
     }
-    const refTime = parseDate(getVal(r, idx, COL.INSTALL_TIME)) || parseDate(getVal(r, idx, COL.EVENT_TIME));
+    const refTime =
+      parseDate(getVal(r, idx, COL.INSTALL_TIME)) || parseDate(getVal(r, idx, COL.EVENT_TIME));
     if (refTime) {
       const hour = refTime.hour;
       if (!hourBySource[mediaSource]) hourBySource[mediaSource] = {};
@@ -73,7 +78,7 @@ export function enrichRows(headers: string[], rows: Row[], settings: Settings): 
   Object.keys(sdkBySource).forEach((src) => {
     const freqs = sdkBySource[src];
     const total = Object.values(freqs).reduce((a, b) => a + b, 0);
-    if (total < settings.sdkMismatchMinSample) return;
+    if (total < settings.thresholds.sdkMismatchMinSample) return;
     let mode = "";
     let modeCount = -1;
     Object.entries(freqs).forEach(([v, c]) => {
@@ -85,7 +90,8 @@ export function enrichRows(headers: string[], rows: Row[], settings: Settings): 
     sdkModeBySource[src] = { mode, total };
   });
 
-  const knownCarriersLower = (settings.knownCarriers || []).map((c) => String(c).trim().toLowerCase());
+  const injectSec = settings.thresholds.ctitClickInjectSec;
+  const floodDays = settings.thresholds.ctitClickFloodDays;
 
   return rows.map((r, i) => {
     const touch = parseDate(getVal(r, idx, COL.TOUCH_TIME));
@@ -98,6 +104,8 @@ export function enrichRows(headers: string[], rows: Row[], settings: Settings): 
     const idfa = getVal(r, idx, COL.IDFA);
     const deviceModelRaw = getVal(r, idx, COL.DEVICE_MODEL);
     const deviceModel = deviceModelRaw.toLowerCase().trim();
+    const platformRaw = getVal(r, idx, COL.PLATFORM);
+    const platform = platformRaw.toLowerCase().trim();
     const osVersion = getVal(r, idx, COL.OS_VERSION);
     const isPrimaryRaw = getVal(r, idx, COL.IS_PRIMARY);
     const fraudReason = getVal(r, idx, COL.FRAUD_REASON);
@@ -115,43 +123,93 @@ export function enrichRows(headers: string[], rows: Row[], settings: Settings): 
     const eventHour = event ? event.hour : null;
 
     const signals: string[] = [];
-    if (ctitSeconds !== null && ctitSeconds < CONFIG.CTIT_CLICK_INJECT_S)
-      signals.push("Click Injection (CTIT<10s)");
-    if (ctitSeconds !== null && ctitSeconds > CONFIG.CTIT_CLICK_FLOOD_DAYS * 86400)
-      signals.push("Click Flooding (CTIT>1d)");
-    if (ip && ipMap[ip] >= CONFIG.IP_FARM_THRESHOLD) signals.push(`IP Farm (${ipMap[ip]} occurrences)`);
+    if (ctitSeconds !== null && ctitSeconds < injectSec)
+      signals.push(`Click Injection (CTIT<${injectSec}s)`);
+    if (ctitSeconds !== null && ctitSeconds > floodDays * 86400) {
+      const floodLabel = floodDays === 1 ? "1d" : `${floodDays}d`;
+      signals.push(`Click Flooding (CTIT>${floodLabel})`);
+    }
+    if (ip && ipMap[ip] >= settings.thresholds.ipFarmThreshold)
+      signals.push(`IP Farm (${ipMap[ip]} occurrences)`);
     if (deviceModelRaw && CONFIG.NULL_DEVICE_KEYWORDS.some((k) => deviceModel.includes(k)))
       signals.push("Unknown Device Model (Emulator)");
     if (isPrimaryRaw === "false" || String(isPrimaryRaw).toLowerCase() === "false")
       signals.push("Non-Primary Attribution (Assist Fraud)");
     if (gaid === CONFIG.GAID_ZERO) signals.push("Zeroed GAID (Device Farm/ID Spoof)");
-    if (gaid && gaid !== CONFIG.GAID_ZERO && gaidMap[gaid] > 1) signals.push(`GAID Reuse (${gaidMap[gaid]}x)`);
-    if (idfa && idfa.trim() !== "" && idfaMap[idfa] > 1) signals.push(`IDFA Reuse (${idfaMap[idfa]}x)`);
-    if (country && country !== settings.targetCountry) signals.push(`Geo Mismatch (Country: ${country})`);
-    if (country === settings.targetCountry && carrier) {
-      const carrierNorm = carrier.trim().toLowerCase();
-      if (!knownCarriersLower.some((k) => k && (carrierNorm.includes(k) || k.includes(carrierNorm))))
-        signals.push(`Country/Carrier Mismatch (${carrier} unexpected for ${country})`);
+    if (gaid && gaid !== CONFIG.GAID_ZERO && gaidMap[gaid] > 1)
+      signals.push(`GAID Reuse (${gaidMap[gaid]}x)`);
+    if (idfa && idfa.trim() !== "" && idfaMap[idfa] > 1)
+      signals.push(`IDFA Reuse (${idfaMap[idfa]}x)`);
+
+    // Multi-GEO validation
+    if (settings.geos && settings.geos.length > 0) {
+      const countryNorm = country.trim().toUpperCase();
+      const matchedGeo = countryNorm
+        ? settings.geos.find((g) => g.country === countryNorm)
+        : undefined;
+
+      if (countryNorm && !matchedGeo) {
+        signals.push(`Geo Mismatch (Country: ${country})`);
+      } else if (
+        matchedGeo &&
+        matchedGeo.knownCarriers &&
+        matchedGeo.knownCarriers.length > 0 &&
+        carrier
+      ) {
+        const carrierNorm = carrier.trim().toLowerCase();
+        const knownCarriersLower = matchedGeo.knownCarriers
+          .map((c) => String(c).trim().toLowerCase())
+          .filter(Boolean);
+        if (
+          knownCarriersLower.length > 0 &&
+          !knownCarriersLower.some((k) => carrierNorm.includes(k) || k.includes(carrierNorm))
+        ) {
+          signals.push(`Country/Carrier Mismatch (${carrier} unexpected for ${country})`);
+        }
+      }
     }
-    if (ip && carrier && carrierIpMap[ip + "|" + carrier] >= settings.carrierIpThreshold)
+
+    if (ip && carrier && carrierIpMap[ip + "|" + carrier] >= settings.thresholds.carrierIpThreshold)
       signals.push(`Carrier IP Concentration (${carrierIpMap[ip + "|" + carrier]} occurrences)`);
+
     const osNum = parseInt(osVersion, 10);
-    if (!isNaN(osNum) && osNum <= 9) signals.push(`Outdated OS (Android ${osVersion})`);
-    if (deviceModelRaw && deviceModelMap[deviceModel] >= settings.deviceModelClusterThreshold)
+    const isIos = platform === "ios" || platform === "iphone" || platform === "ipad";
+    if (isIos) {
+      if (!isNaN(osNum) && osNum <= settings.thresholds.outdatedOsMaxMajor.ios)
+        signals.push(`Outdated OS (iOS ${osVersion})`);
+    } else {
+      if (!isNaN(osNum) && osNum <= settings.thresholds.outdatedOsMaxMajor.android)
+        signals.push(`Outdated OS (Android ${osVersion})`);
+    }
+
+    if (
+      deviceModelRaw &&
+      deviceModelMap[deviceModel] >= settings.thresholds.deviceModelClusterThreshold
+    )
       signals.push(`Device Model Cluster (${deviceModelMap[deviceModel]}x)`);
+
     const sdkMode = sdkModeBySource[mediaSource];
     if (sdkMode && sdkVersion && String(sdkVersion) !== String(sdkMode.mode))
       signals.push(`SDK Version Mismatch (expected ${sdkMode.mode})`);
+
     const refHour = eventHour !== null ? eventHour : installHour;
-    if (refHour !== null && (totalBySource[mediaSource] || 0) >= settings.timeOfDayMinSample) {
-      const hrPct = ((hourBySource[mediaSource]?.[refHour] || 0) / totalBySource[mediaSource]) * 100;
-      if (hrPct >= settings.timeOfDayThresholdPct)
-        signals.push(`Time-of-Day Cluster (Hour ${refHour}:00 IST, ${hrPct.toFixed(0)}% of source)`);
+    if (
+      refHour !== null &&
+      (totalBySource[mediaSource] || 0) >= settings.thresholds.timeOfDayMinSample
+    ) {
+      const hrPct =
+        ((hourBySource[mediaSource]?.[refHour] || 0) / totalBySource[mediaSource]) * 100;
+      if (hrPct >= settings.thresholds.timeOfDayThresholdPct)
+        signals.push(
+          `Time-of-Day Cluster (Hour ${refHour}:00 ${settings.timezoneLabel}, ${hrPct.toFixed(0)}% of source)`,
+        );
     }
+
     if (fraudReason) signals.push(`PAF: ${fraudReason}${fraudSub ? " / " + fraudSub : ""}`);
 
     let fraudCategory = "Unknown";
-    if (fraudReason === "click_flood" || fraudReason === "install_hijacking") fraudCategory = "Clicks";
+    if (fraudReason === "click_flood" || fraudReason === "install_hijacking")
+      fraudCategory = "Clicks";
     else if (fraudReason === "bots") fraudCategory = "Bots";
     else if (signals.length > 0) fraudCategory = "Signals Only";
 
@@ -170,6 +228,7 @@ export function enrichRows(headers: string[], rows: Row[], settings: Settings): 
       gaid,
       gaidCount: gaid ? gaidMap[gaid] || 0 : 0,
       idfa,
+      platform: platformRaw || undefined,
       mediaSource,
       siteId,
       campaign,
@@ -192,21 +251,27 @@ export function enrichRows(headers: string[], rows: Row[], settings: Settings): 
 
 export function computeEventSpecificFraud(
   enrichedEvents: EnrichedRow[],
-  settings: Settings,
-): { perInstallFlags: Record<string, PerInstallFlag>; funnel: { events: string[]; counts: number[] } } {
+  rawSettings?: Settings,
+): {
+  perInstallFlags: Record<string, PerInstallFlag>;
+  funnel: { events: string[]; counts: number[] } | null;
+} {
+  const settings = normalizeSettings(rawSettings);
   const eventsByAfId: Record<string, EnrichedRow[]> = {};
-  const funnelEvents = settings.funnelEvents || [];
+  const stages = (settings.funnelStages || []).slice().sort((a, b) => a.order - b.order);
+  const funnelEvents = stages.map((s) => s.name);
   const stageIndexMap: Record<string, number> = {};
   funnelEvents.forEach((name, i) => (stageIndexMap[name] = i));
   const funnelStageCounts = funnelEvents.map(() => 0);
-  const bucketSec = settings.uniformTimingBucketSeconds || 5;
+  const bucketSec = settings.thresholds.uniformTimingBucketSeconds || 5;
   const deltaBucketMap: Record<string, number> = {};
   const perInstallFlags: Record<string, PerInstallFlag> = {};
   const installByAfId: Record<string, number> = {};
 
   enrichedEvents.forEach((e) => {
     if (!e.appsflyerId) return;
-    if (e.installTimeMs && !installByAfId[e.appsflyerId]) installByAfId[e.appsflyerId] = e.installTimeMs;
+    if (e.installTimeMs && !installByAfId[e.appsflyerId])
+      installByAfId[e.appsflyerId] = e.installTimeMs;
     if (!eventsByAfId[e.appsflyerId]) eventsByAfId[e.appsflyerId] = [];
     eventsByAfId[e.appsflyerId].push(e);
   });
@@ -215,7 +280,8 @@ export function computeEventSpecificFraud(
     const evs = eventsByAfId[afId];
     const presentStages = new Set<number>();
     evs.forEach((e) => {
-      if (e.eventName && stageIndexMap[e.eventName] !== undefined) presentStages.add(stageIndexMap[e.eventName]);
+      if (e.eventName && stageIndexMap[e.eventName] !== undefined)
+        presentStages.add(stageIndexMap[e.eventName]);
     });
     if (presentStages.size > 0) {
       const maxIdx = Math.max(...presentStages);
@@ -260,14 +326,15 @@ export function computeEventSpecificFraud(
         if (deltaSec >= 0) {
           const bucketed = Math.round(deltaSec / bucketSec) * bucketSec;
           const key = `${e.mediaSource}|${e.eventName}|${bucketed}`;
-          if (deltaBucketMap[key] >= settings.uniformTimingMinCount) {
+          if (deltaBucketMap[key] >= settings.thresholds.uniformTimingMinCount) {
             e.signals.push(`Uniform Install→Event Timing (~${bucketed}s)`);
             if (e.fraudCategory === "Unknown") e.fraudCategory = "Signals Only";
             e.signalCount = e.signals.length;
             flaggedUniform = true;
             if (!perInstallFlags[afId]) perInstallFlags[afId] = {};
             perInstallFlags[afId].uniformTiming = true;
-            perInstallFlags[afId].uniformTimingDesc = `${deltaBucketMap[key]} events fired ~${bucketed}s post-install`;
+            perInstallFlags[afId].uniformTimingDesc =
+              `${deltaBucketMap[key]} events fired ~${bucketed}s post-install`;
           }
         }
       }
@@ -275,11 +342,17 @@ export function computeEventSpecificFraud(
     void flaggedUniform;
   });
 
-  const cumulative = funnelStageCounts.map((_, i) => funnelStageCounts.slice(i).reduce((a, b) => a + b, 0));
-  return { perInstallFlags, funnel: { events: funnelEvents, counts: cumulative } };
+  const cumulative = funnelStageCounts.map((_, i) =>
+    funnelStageCounts.slice(i).reduce((a, b) => a + b, 0),
+  );
+  return {
+    perInstallFlags,
+    funnel: stages.length ? { events: funnelEvents, counts: cumulative } : null,
+  };
 }
 
-function createEmptyState(): DashboardState {
+function createEmptyState(settings?: Settings): DashboardState {
+  const labels = ctitBucketLabels(settings);
   return {
     total: 0,
     clickFlood: 0,
@@ -300,23 +373,40 @@ function createEmptyState(): DashboardState {
     byMedia: {},
     bySignal: {},
     bySiteId: {},
-    ctitBuckets: { "Inject (<10s)": 0, "Suspicious (10s-1m)": 0, "Normal (1m-24h)": 0, "Flood (>24h)": 0 },
+    ctitBuckets: {
+      [labels.inject]: 0,
+      [labels.suspicious]: 0,
+      [labels.normal]: 0,
+      [labels.flood]: 0,
+    },
   };
 }
 
-function updateState(s: DashboardState, e: EnrichedRow, flags: PerInstallFlag | null) {
+function updateState(
+  s: DashboardState,
+  e: EnrichedRow,
+  flags: PerInstallFlag | null,
+  settings: Settings,
+) {
+  const labels = ctitBucketLabels(settings);
+  const injectSec = settings.thresholds.ctitClickInjectSec;
+  const floodHours = settings.thresholds.ctitClickFloodDays * 24;
+
   s.total++;
   if (e.fraudReason === "click_flood") s.clickFlood++;
   if (e.fraudReason === "install_hijacking") s.hijack++;
   if (e.fraudReason === "bots") s.bots++;
   if (e.gaid === CONFIG.GAID_ZERO) s.zeroGaid++;
-  if (e.ctitHours !== null && e.ctitHours > 24) s.ctitHigh++;
-  if (e.ctitSeconds !== null && e.ctitSeconds < 10) s.ctitLow++;
+  if (e.ctitHours !== null && e.ctitHours > floodHours) s.ctitHigh++;
+  if (e.ctitSeconds !== null && e.ctitSeconds < injectSec) s.ctitLow++;
   if (e.ctitSeconds !== null) {
-    if (e.ctitSeconds < 10) s.ctitBuckets["Inject (<10s)"]++;
-    else if (e.ctitSeconds < 60) s.ctitBuckets["Suspicious (10s-1m)"]++;
-    else if ((e.ctitHours ?? 0) <= 24) s.ctitBuckets["Normal (1m-24h)"]++;
-    else s.ctitBuckets["Flood (>24h)"]++;
+    if (e.ctitSeconds < injectSec)
+      s.ctitBuckets[labels.inject] = (s.ctitBuckets[labels.inject] || 0) + 1;
+    else if (e.ctitSeconds < 60)
+      s.ctitBuckets[labels.suspicious] = (s.ctitBuckets[labels.suspicious] || 0) + 1;
+    else if ((e.ctitHours ?? 0) <= floodHours)
+      s.ctitBuckets[labels.normal] = (s.ctitBuckets[labels.normal] || 0) + 1;
+    else s.ctitBuckets[labels.flood] = (s.ctitBuckets[labels.flood] || 0) + 1;
   }
   if (e.signals.some((sig) => sig.startsWith("Device Model Cluster"))) s.deviceCluster++;
   if (e.signals.some((sig) => sig.startsWith("Time-of-Day Cluster"))) s.timeOfDay++;
@@ -346,15 +436,37 @@ function riskLevel(total: number, clickPct: number, bots: number): string {
   return "Low";
 }
 
-function buildPublishers(enriched: EnrichedRow[]): PublisherRow[] {
-  const map: Record<string, {
-    mediaSource: string; sites: Set<string>; total: number; clickFlood: number;
-    installHijack: number; bots: number; ctitSum: number; ctitCount: number; zeroGaid: number; outdatedOs: number;
-  }> = {};
+function buildPublishers(enriched: EnrichedRow[], settings: Settings): PublisherRow[] {
+  const map: Record<
+    string,
+    {
+      mediaSource: string;
+      sites: Set<string>;
+      total: number;
+      clickFlood: number;
+      installHijack: number;
+      bots: number;
+      ctitSum: number;
+      ctitCount: number;
+      zeroGaid: number;
+      outdatedOs: number;
+    }
+  > = {};
   enriched.forEach((e) => {
     const key = e.mediaSource;
     if (!map[key])
-      map[key] = { mediaSource: key, sites: new Set(), total: 0, clickFlood: 0, installHijack: 0, bots: 0, ctitSum: 0, ctitCount: 0, zeroGaid: 0, outdatedOs: 0 };
+      map[key] = {
+        mediaSource: key,
+        sites: new Set(),
+        total: 0,
+        clickFlood: 0,
+        installHijack: 0,
+        bots: 0,
+        ctitSum: 0,
+        ctitCount: 0,
+        zeroGaid: 0,
+        outdatedOs: 0,
+      };
     const p = map[key];
     p.total++;
     if (e.siteId && e.siteId !== "(none)") p.sites.add(e.siteId);
@@ -367,7 +479,11 @@ function buildPublishers(enriched: EnrichedRow[]): PublisherRow[] {
     }
     if (e.gaid === CONFIG.GAID_ZERO) p.zeroGaid++;
     const os = parseInt(e.osVersion, 10);
-    if (!isNaN(os) && os <= 9) p.outdatedOs++;
+    const isIos = e.platform === "ios" || e.platform === "iphone" || e.platform === "ipad";
+    const osThreshold = isIos
+      ? settings.thresholds.outdatedOsMaxMajor.ios
+      : settings.thresholds.outdatedOsMaxMajor.android;
+    if (!isNaN(os) && os <= osThreshold) p.outdatedOs++;
   });
   return Object.values(map)
     .map((p) => {
@@ -408,9 +524,10 @@ export function analyze(
   headers: string[],
   rows: Row[],
   mode: "Install" | "Event",
-  settings: Settings,
+  rawSettings?: Settings,
   onProgress?: (p: number, msg: string) => void,
 ): AnalysisResult {
+  const settings = normalizeSettings(rawSettings);
   onProgress?.(40, "Enriching rows & computing signals…");
   const enriched = enrichRows(headers, rows, settings);
 
@@ -424,24 +541,30 @@ export function analyze(
   }
 
   onProgress?.(75, "Aggregating dashboard state…");
-  const data: Record<string, DashboardState> = { All: createEmptyState() };
+  const data: Record<string, DashboardState> = { All: createEmptyState(settings) };
   const pids = [...new Set(enriched.map((e) => e.mediaSource))].filter(Boolean).sort();
-  pids.forEach((pid) => (data[pid] = createEmptyState()));
+  pids.forEach((pid) => (data[pid] = createEmptyState(settings)));
 
   const processedAfIds = new Set<string>();
   enriched.forEach((e) => {
-    const flags = mode === "Event" && !processedAfIds.has(e.appsflyerId) ? perInstallFlags[e.appsflyerId] || null : null;
-    updateState(data.All, e, flags);
-    if (data[e.mediaSource]) updateState(data[e.mediaSource], e, flags);
+    const flags =
+      mode === "Event" && !processedAfIds.has(e.appsflyerId)
+        ? perInstallFlags[e.appsflyerId] || null
+        : null;
+    updateState(data.All, e, flags, settings);
+    if (data[e.mediaSource]) updateState(data[e.mediaSource], e, flags, settings);
     processedAfIds.add(e.appsflyerId);
   });
 
   onProgress?.(88, "Building tables…");
-  const publishers = buildPublishers(enriched);
+  const publishers = buildPublishers(enriched, settings);
   const deviceModels = buildDeviceModels(enriched);
   const flagged = enriched.filter((e) => e.signalCount > 0);
 
-  const dates = enriched.map((e) => e.date).filter(Boolean).sort();
+  const dates = enriched
+    .map((e) => e.date)
+    .filter(Boolean)
+    .sort();
   const startDate = dates[0] || "";
   const endDate = dates[dates.length - 1] || "";
 
@@ -461,9 +584,10 @@ export function analyze(
     pids,
     publishers,
     deviceModels,
-    flaggedInstalls: mode === "Install" ? flagged : [],
-    flaggedEvents: mode === "Event" ? flagged : [],
+    flaggedInstalls: mode === "Install" && settings.buildFlaggedInstalls ? flagged : [],
+    flaggedEvents: mode === "Event" && settings.buildFlaggedEvents ? flagged : [],
     funnel,
+    settings,
     generatedAt: Date.now(),
   };
 }

@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 import type { AnalysisResult } from "@/engine/types";
 
 const FEATURES = [
-  { t: "Click fraud", d: "CTIT injection (<10s) & flooding (>1d)" },
+  { t: "Click fraud", d: "CTIT injection & flooding detection" },
   { t: "Bot detection", d: "Device & time-of-day clustering, GAID reuse" },
   { t: "Event integrity", d: "Funnel gaps, uniform timing, zero events" },
 ];

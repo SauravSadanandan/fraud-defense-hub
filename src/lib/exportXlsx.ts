@@ -1,5 +1,7 @@
 import * as XLSX from "xlsx";
 import type { AnalysisResult, EnrichedRow, DashboardState } from "@/engine/types";
+import type { Settings } from "@/engine/config";
+import { kpiLabels } from "@/engine/labels";
 
 function sanitize(part: string): string {
   return (part || "").replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "NA";
@@ -8,12 +10,14 @@ function sanitize(part: string): string {
 export function buildFileName(result: AnalysisResult, publisher: string): string {
   const app = sanitize(result.appName);
   const pub = publisher === "All" ? "All" : sanitize(publisher);
-  const range = result.startDate && result.endDate ? `${result.startDate}_to_${result.endDate}` : "report";
+  const range =
+    result.startDate && result.endDate ? `${result.startDate}_to_${result.endDate}` : "report";
   return `${app}_${pub}_${range}.xlsx`;
 }
 
-function stateToRows(state: DashboardState, label: string): unknown[][] {
+function stateToRows(state: DashboardState, label: string, settings?: Settings): unknown[][] {
   const clickFraud = state.clickFlood + state.hijack;
+  const labels = kpiLabels(settings);
   return [
     [`Summary — ${label}`],
     ["Metric", "Count"],
@@ -21,8 +25,8 @@ function stateToRows(state: DashboardState, label: string): unknown[][] {
     ["Click Fraud (Flood + Hijack)", clickFraud],
     ["Bots / AI Layer", state.bots],
     ["Zeroed GAID", state.zeroGaid],
-    ["CTIT > 1 day", state.ctitHigh],
-    ["CTIT < 10s", state.ctitLow],
+    [labels.ctitHigh, state.ctitHigh],
+    [labels.ctitLow, state.ctitLow],
     ["Device Model Cluster", state.deviceCluster],
     ["Time-of-Day Cluster", state.timeOfDay],
     ["SDK Mismatch", state.sdkMismatch],
@@ -35,15 +39,36 @@ function stateToRows(state: DashboardState, label: string): unknown[][] {
 
 function flaggedToRows(rows: EnrichedRow[]): unknown[][] {
   const header = [
-    "AppsFlyer ID", "Media Source", "Site ID", "Campaign", "Event Name", "Country",
-    "Carrier", "Device Model", "OS", "CTIT (min)", "Fraud Reason", "Fraud Category",
-    "Signal Count", "Signals",
+    "AppsFlyer ID",
+    "Media Source",
+    "Site ID",
+    "Campaign",
+    "Event Name",
+    "Country",
+    "Carrier",
+    "Device Model",
+    "OS",
+    "CTIT (min)",
+    "Fraud Reason",
+    "Fraud Category",
+    "Signal Count",
+    "Signals",
   ];
   const body = rows.map((e) => [
-    e.appsflyerId, e.mediaSource, e.siteId, e.campaign, e.eventName, e.country,
-    e.carrier, e.deviceModel, e.osVersion,
+    e.appsflyerId,
+    e.mediaSource,
+    e.siteId,
+    e.campaign,
+    e.eventName,
+    e.country,
+    e.carrier,
+    e.deviceModel,
+    e.osVersion,
     e.ctitMinutes !== null ? Number(e.ctitMinutes.toFixed(2)) : "—",
-    e.fraudReason, e.fraudCategory, e.signalCount, e.signals.join(" | "),
+    e.fraudReason,
+    e.fraudCategory,
+    e.signalCount,
+    e.signals.join(" | "),
   ]);
   return [header, ...body];
 }
@@ -64,7 +89,7 @@ export function exportReport(result: AnalysisResult, pids: string[] | "all") {
   selected.forEach((pid) => {
     const state = result.data[pid];
     if (state) {
-      summaryAoa.push(...stateToRows(state, pid));
+      summaryAoa.push(...stateToRows(state, pid, result.settings));
       summaryAoa.push([]);
     }
   });
@@ -76,35 +101,67 @@ export function exportReport(result: AnalysisResult, pids: string[] | "all") {
     const sigAoa: unknown[][] = [["Signal", "Count", "% of Total"]];
     Object.entries(baseState.bySignal)
       .sort((a, b) => b[1] - a[1])
-      .forEach(([k, v]) => sigAoa.push([k, v, baseState.total ? `${((v / baseState.total) * 100).toFixed(1)}%` : "0%"]));
+      .forEach(([k, v]) =>
+        sigAoa.push([
+          k,
+          v,
+          baseState.total ? `${((v / baseState.total) * 100).toFixed(1)}%` : "0%",
+        ]),
+      );
     aoaSheet(wb, "Fraud Signals", sigAoa);
 
     const reasonAoa: unknown[][] = [["Fraud Reason", "Count"]];
-    Object.entries(baseState.byReason).sort((a, b) => b[1] - a[1]).forEach(([k, v]) => reasonAoa.push([k, v]));
+    Object.entries(baseState.byReason)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([k, v]) => reasonAoa.push([k, v]));
     aoaSheet(wb, "Fraud Reasons", reasonAoa);
   }
 
   // Publisher analysis
   const pubHeader = [
-    "Media Source", "Unique Site IDs", "Total Flagged", "Click Flood", "Install Hijack",
-    "Bots", "Click Fraud %", "Avg CTIT (min)", "Zeroed GAID", "Outdated OS", "Risk Level",
+    "Media Source",
+    "Unique Site IDs",
+    "Total Flagged",
+    "Click Flood",
+    "Install Hijack",
+    "Bots",
+    "Click Fraud %",
+    "Avg CTIT (min)",
+    "Zeroed GAID",
+    "Outdated OS",
+    "Risk Level",
   ];
   const pubRows = result.publishers
     .filter((p) => isAll || selected.includes(p.mediaSource))
     .map((p) => [
-      p.mediaSource, p.siteCount, p.total, p.clickFlood, p.installHijack, p.bots,
-      `${p.clickPct.toFixed(1)}%`, p.avgCtitMin !== null ? Number(p.avgCtitMin.toFixed(1)) : "—",
-      p.zeroGaid, p.outdatedOs, p.risk,
+      p.mediaSource,
+      p.siteCount,
+      p.total,
+      p.clickFlood,
+      p.installHijack,
+      p.bots,
+      `${p.clickPct.toFixed(1)}%`,
+      p.avgCtitMin !== null ? Number(p.avgCtitMin.toFixed(1)) : "—",
+      p.zeroGaid,
+      p.outdatedOs,
+      p.risk,
     ]);
   aoaSheet(wb, "Publisher Analysis", [pubHeader, ...pubRows]);
 
   // Device models
-  aoaSheet(wb, "Device Models", [["Device Model", "Count", "Flagged"], ...result.deviceModels.map((d) => [d.model, d.count, d.flagged])]);
+  aoaSheet(wb, "Device Models", [
+    ["Device Model", "Count", "Flagged"],
+    ...result.deviceModels.map((d) => [d.model, d.count, d.flagged]),
+  ]);
 
   // Flagged rows (filtered by PID when not all)
   const flagged = result.mode === "Event" ? result.flaggedEvents : result.flaggedInstalls;
   const filteredFlagged = isAll ? flagged : flagged.filter((e) => selected.includes(e.mediaSource));
-  aoaSheet(wb, result.mode === "Event" ? "Flagged Events" : "Flagged Installs", flaggedToRows(filteredFlagged));
+  aoaSheet(
+    wb,
+    result.mode === "Event" ? "Flagged Events" : "Flagged Installs",
+    flaggedToRows(filteredFlagged),
+  );
 
   if (result.funnel && result.funnel.events.length) {
     aoaSheet(wb, "Event Funnel", [
@@ -113,7 +170,10 @@ export function exportReport(result: AnalysisResult, pids: string[] | "all") {
     ]);
   }
 
-  const fileName = buildFileName(result, isAll ? "All" : selected.length === 1 ? selected[0] : "Multiple");
+  const fileName = buildFileName(
+    result,
+    isAll ? "All" : selected.length === 1 ? selected[0] : "Multiple",
+  );
   XLSX.writeFile(wb, fileName);
   return fileName;
 }

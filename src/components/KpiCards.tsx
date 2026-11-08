@@ -1,5 +1,7 @@
 import { formatMetric } from "@/lib/format";
 import type { DashboardState } from "@/engine/types";
+import type { Settings } from "@/engine/config";
+import { kpiLabels } from "@/engine/labels";
 import { cn } from "@/lib/utils";
 
 interface Kpi {
@@ -24,15 +26,24 @@ const dotClass: Record<Kpi["tone"], string> = {
   neutral: "bg-muted-foreground",
 };
 
-export function KpiCards({ data, mode }: { data: DashboardState; mode: "Install" | "Event" }) {
+export function KpiCards({
+  data,
+  mode,
+  settings,
+}: {
+  data: DashboardState;
+  mode: "Install" | "Event";
+  settings?: Settings;
+}) {
   const clickFraud = data.clickFlood + data.hijack;
+  const labels = kpiLabels(settings);
   const kpis: Kpi[] = [
     { label: "Total Flagged", value: data.total, tone: "neutral" },
     { label: "Click Fraud", value: clickFraud, tone: "click" },
     { label: "Bots / AI Layer", value: data.bots, tone: "bot" },
     { label: "Zeroed GAID", value: data.zeroGaid, tone: "bot" },
-    { label: "CTIT > 1 day", value: data.ctitHigh, tone: "click" },
-    { label: "CTIT < 10s", value: data.ctitLow, tone: "click" },
+    { label: labels.ctitHigh, value: data.ctitHigh, tone: "click" },
+    { label: labels.ctitLow, value: data.ctitLow, tone: "click" },
     { label: "Device Cluster", value: data.deviceCluster, tone: "bot" },
     { label: "Time-of-Day Cluster", value: data.timeOfDay, tone: "bot" },
     { label: "SDK Mismatch", value: data.sdkMismatch, tone: "warn" },
