@@ -1,0 +1,139 @@
+rules_version = '2';
+
+// Note: PermissionKey list in this file must match src/lib/permissions.ts:
+// analysis.view, analysis.save, analysis.delete, analysis.export,
+// publishers.view, publishers.manage, profiles.view, profiles.manage,
+// members.manage, roles.manage
+// Note: analysis.export is client-side only (XLSX built in browser): can('analysis.export')
+// Allows existing authenticated sessions full access to fraud_datasets, chunks, and publisher_map
+// while establishing new strict rules for users, roles, access_requests, and campaign_profiles.
+// Used during zero-downtime rollout before final strict rules cutover.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActive() {
+      return hasProfile() && profile().status == 'active';
+    }
+
+    function isAdmin() {
+      return isActive() && profile().role == 'admin';
+    }
+
+    function can(perm) {
+      return isAdmin() || (
+        isActive() &&
+        get(/databases/$(database)/documents/roles/$(profile().role)).data.permissions.get(perm, false) == true
+      );
+    }
+
+    function isValidRolePerms(p) {
+      return p is map &&
+        p.keys().hasOnly([
+          'analysis.view', 'analysis.save', 'analysis.delete', 'analysis.export',
+          'publishers.view', 'publishers.manage', 'profiles.view', 'profiles.manage',
+          'members.manage', 'roles.manage'
+        ]) &&
+        p.get('members.manage', false) == false &&
+        p.get('roles.manage', false) == false &&
+        (!('analysis.view' in p) || p['analysis.view'] is bool) &&
+        (!('analysis.save' in p) || p['analysis.save'] is bool) &&
+        (!('analysis.delete' in p) || p['analysis.delete'] is bool) &&
+        (!('analysis.export' in p) || p['analysis.export'] is bool) &&
+        (!('publishers.view' in p) || p['publishers.view'] is bool) &&
+        (!('publishers.manage' in p) || p['publishers.manage'] is bool) &&
+        (!('profiles.view' in p) || p['profiles.view'] is bool) &&
+        (!('profiles.manage' in p) || p['profiles.manage'] is bool);
+    }
+
+    // New collection: User profiles
+    match /users/{userId} {
+      allow get: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && userId != request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'email', 'displayName', 'role', 'status', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'
+        ])
+        && request.resource.data.role is string
+        && request.resource.data.status in ['active', 'disabled']
+        && request.resource.data.email is string
+        && request.resource.data.email == request.resource.data.email.lower();
+      allow update: if isAdmin()
+        && userId != request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'role', 'status', 'displayName', 'updatedAt', 'updatedBy'
+        ])
+        && (!('role' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.role is string)
+        && (!('status' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.status in ['active', 'disabled']);
+      allow delete: if isAdmin() && userId != request.auth.uid;
+    }
+
+    // New collection: Role definitions
+    match /roles/{roleId} {
+      allow read: if isActive();
+      allow create: if isAdmin()
+        && roleId != 'admin'
+        && isValidRolePerms(request.resource.data.permissions);
+      allow update: if isAdmin()
+        && roleId != 'admin'
+        && isValidRolePerms(request.resource.data.permissions);
+      allow delete: if isAdmin() && roleId != 'admin';
+    }
+
+    // New collection: Access requests
+    match /access_requests/{userId} {
+      allow create, update: if signedIn()
+        && request.auth.uid == userId
+        && !exists(/databases/$(database)/documents/users/$(userId))
+        && request.resource.data.keys().hasOnly(['email', 'emailVerified', 'displayName', 'requestedAt'])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.requestedAt == request.time;
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if signedIn() && (request.auth.uid == userId || isAdmin());
+    }
+
+    // Existing collection: Fraud datasets (transitional permissive auth)
+    match /fraud_datasets/{docId} {
+      allow read, write: if request.auth != null;
+
+      match /chunks/{chunkId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // Existing collection: Publisher map (transitional permissive auth)
+    match /publisher_map/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // New collection: Campaign profiles
+    match /campaign_profiles/{id} {
+      allow read: if can('profiles.view') || can('profiles.manage');
+      allow write: if can('profiles.manage') && (
+        request.method == 'delete' || (
+          request.resource.data.name is string &&
+          request.resource.data.name.size() > 0 &&
+          request.resource.data.settings is map
+        )
+      );
+    }
+
+    // Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
