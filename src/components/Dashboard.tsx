@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, Save, Loader2, Tag } from "lucide-react";
+import { Download, Save, Loader2, Tag, Sliders } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -128,6 +129,10 @@ export function Dashboard({
             <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-primary">
               {result.mode} mode
             </span>
+            <Badge variant="secondary" className="gap-1 text-xs">
+              <Sliders className="size-3" />
+              {result.profileName || "India (Default)"}
+            </Badge>
             {view.scope !== "all" && (
               <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
                 {view.scope === "publisher" ? "Publisher" : "PID"}: {view.label}
@@ -239,7 +244,7 @@ export function Dashboard({
         </div>
       </div>
 
-      <KpiCards data={view.state} mode={result.mode} />
+      <KpiCards data={view.state} mode={result.mode} settings={result.settings} />
       <DashboardCharts data={view.state} scope={view.scope} label={view.label} />
       <DataTables result={result} state={view.state} pidSet={pidSet} />
     </div>

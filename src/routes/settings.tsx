@@ -8,6 +8,7 @@ import { NoAccess } from "@/components/NoAccess";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MembersTab } from "@/components/settings/MembersTab";
 import { RolesTab } from "@/components/settings/RolesTab";
+import { ProfilesTab } from "@/components/profiles/ProfilesTab";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/settings")({
@@ -109,18 +110,7 @@ function SettingsContent() {
 
           {canViewProfiles && (
             <TabsContent value="campaign-profiles" className="focus-visible:outline-none">
-              <div className="rounded-2xl border border-dashed border-border bg-card/50 p-12 text-center">
-                <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-full bg-accent text-primary">
-                  <Sliders className="size-5" />
-                </div>
-                <h3 className="text-base font-semibold">Campaign Profiles</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Custom detection threshold profiles and rule configurations.
-                </p>
-                <div className="mt-4 inline-flex items-center rounded-full bg-accent px-3 py-1 text-xs font-medium text-primary">
-                  Coming soon
-                </div>
-              </div>
+              <ProfilesTab />
             </TabsContent>
           )}
         </Tabs>

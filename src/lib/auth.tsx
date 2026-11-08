@@ -12,6 +12,7 @@ import type { User } from "firebase/auth";
 import { doc, onSnapshot, type Unsubscribe } from "firebase/firestore";
 import { toast } from "sonner";
 import { getFirebase } from "./firebase";
+import { clearLastProfileId } from "./profiles";
 import type { PermissionKey } from "./permissions";
 import type { UserProfile, RoleDoc } from "./members";
 
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFirebaseUser(null);
     setProfile(null);
     setRole(null);
+    clearLastProfileId();
     setStatus("signedOut");
 
     if (isTimeout) {
