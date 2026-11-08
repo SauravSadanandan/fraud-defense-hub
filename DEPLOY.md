@@ -113,6 +113,12 @@ bun run verify --keep 10                    # Retain only the 10 newest runs
 
 All test runs write persistent, timestamped markdown and JSON records into the local, git-ignored `test-history/` folder, appending to `test-history/INDEX.md` and updating `test-history/LATEST.md`.
 
+### Verification Verdicts & Exit Codes
+The quality runner evaluates three distinct outcomes:
+- **`PASS` (exit code `0`)**: All verification steps executed and passed cleanly. If any step was skipped, it was explicitly requested via flag (e.g., `--skip-rules`).
+- **`FAIL` (exit code `1`)**: One or more executed verification steps encountered errors (lockfile drift, lint violations, build errors, test failures, or security scan detections).
+- **`INCOMPLETE` (exit code `2`)**: No steps failed, but one or more steps (such as `rules-tests`) were skipped due to missing environment prerequisites (e.g., Java Runtime or Firebase CLI) without an explicit skip flag. To resolve, install the required tools or run with `--skip-rules`.
+
 ---
 
 ## 7. After Cutover Checklist

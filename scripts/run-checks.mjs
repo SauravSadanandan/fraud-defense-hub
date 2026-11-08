@@ -167,6 +167,7 @@ function runStepCommand(name, commandString) {
       name,
       command: commandString,
       status: exitCode === 0 ? "PASS" : "FAIL",
+      skipKind: null,
       exitCode,
       durationMs,
       durationStr:
@@ -181,6 +182,7 @@ function runStepCommand(name, commandString) {
       name,
       command: commandString,
       status: "FAIL",
+      skipKind: null,
       exitCode: 1,
       durationMs,
       durationStr: `${durationMs}ms`,
@@ -317,6 +319,7 @@ function runSecurityScan() {
     name: "security-scan",
     command: "internal security scanner (regex pattern audit)",
     status: isPass ? "PASS" : "FAIL",
+    skipKind: null,
     exitCode: isPass ? 0 : 1,
     durationMs,
     durationStr:
@@ -383,6 +386,7 @@ if (skipRules) {
     name: "rules-tests",
     command: "bun run test:rules",
     status: "SKIPPED",
+    skipKind: "flag",
     exitCode: 0,
     durationMs: 0,
     durationStr: "0ms",
@@ -398,6 +402,7 @@ if (skipRules) {
     name: "rules-tests",
     command: "bun run test:rules",
     status: "SKIPPED",
+    skipKind: "environment",
     exitCode: 0,
     durationMs: 0,
     durationStr: "0ms",
@@ -407,6 +412,7 @@ if (skipRules) {
   };
 } else {
   rulesStep = runStepCommand("rules-tests", "bun run test:rules");
+  rulesStep.skipKind = null;
   rulesStep.parsedCounts = parseVitestOutput(rulesStep.log);
 }
 writeFileSync(join(logsDir, "rules-tests.log"), rulesStep.log, "utf8");
@@ -418,13 +424,30 @@ const secStep = runSecurityScan();
 writeFileSync(join(logsDir, "security-scan.log"), secStep.log, "utf8");
 steps.push(secStep);
 
-// 8. Determine Overall Verdict
+// 8. Determine Overall Verdict & Exit Code
 const failedSteps = steps.filter((s) => s.status === "FAIL");
 const skippedSteps = steps.filter((s) => s.status === "SKIPPED");
+const envSkippedSteps = skippedSteps.filter((s) => s.skipKind === "environment");
 const passedSteps = steps.filter((s) => s.status === "PASS");
-const overallVerdict = failedSteps.length === 0 ? "PASS" : "FAIL";
 
-console.log(`[verify] Gate execution finished: ${overallVerdict}`);
+let overallVerdict = "PASS";
+let exitCode = 0;
+let incompleteReason = null;
+
+if (failedSteps.length > 0) {
+  overallVerdict = "FAIL";
+  exitCode = 1;
+} else if (envSkippedSteps.length > 0) {
+  overallVerdict = "INCOMPLETE";
+  exitCode = 2;
+  const skippedNames = envSkippedSteps.map((s) => `'${s.name}'`).join(", ");
+  incompleteReason = `Step(s) ${skippedNames} skipped due to missing environment prerequisites. Install Java 21+ and the Firebase CLI to execute offline emulator rules tests, then re-run.`;
+} else {
+  overallVerdict = "PASS";
+  exitCode = 0;
+}
+
+console.log(`[verify] Gate execution finished: ${overallVerdict} (exit ${exitCode})`);
 
 // 9. Generate report.md and report.json
 const reportData = {
@@ -438,16 +461,20 @@ const reportData = {
   git: gitMeta,
   environment: toolsMeta,
   verdict: overallVerdict,
+  exitCode,
+  incompleteReason: incompleteReason || null,
   summary: {
     totalSteps: steps.length,
     passed: passedSteps.length,
     failed: failedSteps.length,
     skipped: skippedSteps.length,
+    envSkipped: envSkippedSteps.length,
   },
   steps: steps.map((s) => ({
     name: s.name,
     command: s.command,
     status: s.status,
+    skipKind: s.skipKind || null,
     exitCode: s.exitCode,
     durationMs: s.durationMs,
     duration: s.durationStr,
@@ -490,6 +517,8 @@ md += `| **Firebase CLI** | \`${toolsMeta.firebase}\` |\n\n`;
 md += `## Overall Verdict: **${overallVerdict}**\n\n`;
 if (overallVerdict === "PASS") {
   md += `All executed checks passed successfully.\n\n`;
+} else if (overallVerdict === "INCOMPLETE") {
+  md += `> [!IMPORTANT]\n> **Verification Incomplete**: ${incompleteReason}\n\n`;
 } else {
   md += `> [!WARNING]\n> One or more verification steps encountered errors. Review the failure details below.\n\n`;
 }
@@ -497,7 +526,8 @@ if (overallVerdict === "PASS") {
 if (skippedSteps.length > 0) {
   md += `### Not Executed Steps (Skipped)\n\n`;
   skippedSteps.forEach((s) => {
-    md += `- **\`${s.name}\`**: Skipped (${s.reason})\n`;
+    const flagNote = s.skipKind === "flag" ? " (explicitly skipped by flag)" : "";
+    md += `- **\`${s.name}\`**: Skipped (${s.reason})${flagNote}\n`;
   });
   md += `\n`;
 }
@@ -506,8 +536,12 @@ md += `## Steps Summary\n\n`;
 md += `| Step | Status | Command | Duration | Exit Code | Details |\n`;
 md += `|---|---|---|---|---|---|\n`;
 for (const s of steps) {
-  const icon =
-    s.status === "PASS" ? "✅ PASS" : s.status === "FAIL" ? "❌ FAIL" : "⏭️ SKIPPED";
+  let icon = "✅ PASS";
+  if (s.status === "FAIL") {
+    icon = "❌ FAIL";
+  } else if (s.status === "SKIPPED") {
+    icon = s.skipKind === "flag" ? "⏭️ SKIPPED (by flag)" : "⚠️ SKIPPED (env)";
+  }
   let details = "—";
   if (s.name === "build") {
     details = `index.html: ${s.indexHtmlVerified ? "verified" : "missing"}`;
@@ -603,5 +637,5 @@ if (keepCount) {
 console.log(`[verify] Report written to: test-history/${runId}/report.md`);
 console.log(`[verify] Latest mirrored to: test-history/LATEST.md`);
 
-// Exit with 0 if PASS, 1 if FAIL
-process.exit(overallVerdict === "PASS" ? 0 : 1);
+// Exit with 0 if PASS, 1 if FAIL, 2 if INCOMPLETE
+process.exit(exitCode);
