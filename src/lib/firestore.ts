@@ -10,7 +10,8 @@ import {
   limit,
   writeBatch,
 } from "firebase/firestore";
-import { getFirebase, ensureFirebaseSession } from "./firebase";
+import { toast } from "sonner";
+import { getFirebase } from "./firebase";
 import type { AnalysisResult } from "@/engine/types";
 
 const COLLECTION = "fraud_datasets";
@@ -30,6 +31,8 @@ export interface DatasetMeta {
   flaggedRows: number;
   generatedAt: number;
   pids: string[];
+  createdBy?: string;
+  createdByEmail?: string;
 }
 
 function trim(result: AnalysisResult): AnalysisResult {
@@ -44,12 +47,20 @@ function byteSize(str: string): number {
   return new Blob([str]).size;
 }
 
+function isPermissionDenied(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: string }).code === "permission-denied"
+  );
+}
+
 export async function saveAnalysis(result: AnalysisResult, label: string): Promise<string | null> {
   const fb = getFirebase();
-  if (!fb) return null;
-  const ok = await ensureFirebaseSession();
-  if (!ok) return null;
+  if (!fb || !fb.auth.currentUser) return null;
 
+  const currentUser = fb.auth.currentUser;
   const resultJson = JSON.stringify(trim(result));
   const meta = {
     label,
@@ -61,11 +72,13 @@ export async function saveAnalysis(result: AnalysisResult, label: string): Promi
     flaggedRows: result.flaggedRows,
     generatedAt: result.generatedAt,
     pids: result.pids.slice(0, 500),
+    createdBy: currentUser.uid,
+    createdByEmail: currentUser.email || "",
   };
 
   try {
     if (byteSize(resultJson) < INLINE_LIMIT_BYTES) {
-      // Small enough to store inline, same as before.
+      // Small enough to store inline
       const ref = await addDoc(collection(fb.db, COLLECTION), {
         ...meta,
         chunked: false,
@@ -74,8 +87,8 @@ export async function saveAnalysis(result: AnalysisResult, label: string): Promi
       return ref.id;
     }
 
-    // Too large for one document: create the parent doc first (metadata only),
-    // then write the payload as ordered chunk subdocuments.
+    // Too large for one document: create parent doc first (metadata only),
+    // then write payload as ordered chunk subdocuments.
     const ref = await addDoc(collection(fb.db, COLLECTION), {
       ...meta,
       chunked: true,
@@ -87,8 +100,6 @@ export async function saveAnalysis(result: AnalysisResult, label: string): Promi
       chunks.push(resultJson.slice(i, i + CHUNK_SIZE_CHARS));
     }
 
-    // Firestore batches cap at 500 writes; chunk counts here are expected to be
-    // small (a few MB of JSON), but guard anyway by writing in batches of 400.
     for (let start = 0; start < chunks.length; start += 400) {
       const batch = writeBatch(fb.db);
       const slice = chunks.slice(start, start + 400);
@@ -101,16 +112,19 @@ export async function saveAnalysis(result: AnalysisResult, label: string): Promi
 
     return ref.id;
   } catch (e) {
-    console.warn("Firestore save failed (running client-side only):", e);
+    if (isPermissionDenied(e)) {
+      toast.error("Permission denied: You do not have permission to save analyses.");
+    } else {
+      console.warn("Firestore save failed:", e);
+    }
     return null;
   }
 }
 
 export async function listAnalyses(): Promise<DatasetMeta[]> {
   const fb = getFirebase();
-  if (!fb) return [];
-  const ok = await ensureFirebaseSession();
-  if (!ok) return [];
+  if (!fb || !fb.auth.currentUser) return [];
+
   try {
     const q = query(collection(fb.db, COLLECTION), orderBy("generatedAt", "desc"), limit(50));
     const snap = await getDocs(q);
@@ -127,19 +141,24 @@ export async function listAnalyses(): Promise<DatasetMeta[]> {
         flaggedRows: v.flaggedRows || 0,
         generatedAt: v.generatedAt || 0,
         pids: Array.isArray(v.pids) ? (v.pids as string[]) : [],
+        createdBy: v.createdBy,
+        createdByEmail: v.createdByEmail,
       };
     });
   } catch (e) {
-    console.warn("Firestore list failed:", e);
+    if (isPermissionDenied(e)) {
+      toast.error("Permission denied: You do not have permission to view saved analyses.");
+    } else {
+      console.warn("Firestore list failed:", e);
+    }
     return [];
   }
 }
 
 export async function loadAnalysis(id: string): Promise<AnalysisResult | null> {
   const fb = getFirebase();
-  if (!fb) return null;
-  const ok = await ensureFirebaseSession();
-  if (!ok) return null;
+  if (!fb || !fb.auth.currentUser) return null;
+
   try {
     const snap = await getDoc(doc(fb.db, COLLECTION, id));
     if (!snap.exists()) return null;
@@ -158,18 +177,20 @@ export async function loadAnalysis(id: string): Promise<AnalysisResult | null> {
     const resultJson = chunksSnap.docs.map((c) => c.data().data as string).join("");
     return JSON.parse(resultJson) as AnalysisResult;
   } catch (e) {
-    console.warn("Firestore load failed:", e);
+    if (isPermissionDenied(e)) {
+      toast.error("Permission denied: You do not have permission to view this analysis.");
+    } else {
+      console.warn("Firestore load failed:", e);
+    }
     return null;
   }
 }
 
 export async function deleteAnalysis(id: string): Promise<boolean> {
   const fb = getFirebase();
-  if (!fb) return false;
-  const ok = await ensureFirebaseSession();
-  if (!ok) return false;
+  if (!fb || !fb.auth.currentUser) return false;
+
   try {
-    // Clean up chunk subdocuments first (Firestore doesn't cascade-delete them).
     const chunksSnap = await getDocs(collection(fb.db, COLLECTION, id, CHUNKS_SUBCOLLECTION));
     if (!chunksSnap.empty) {
       const batch = writeBatch(fb.db);
@@ -178,7 +199,12 @@ export async function deleteAnalysis(id: string): Promise<boolean> {
     }
     await deleteDoc(doc(fb.db, COLLECTION, id));
     return true;
-  } catch {
+  } catch (e) {
+    if (isPermissionDenied(e)) {
+      toast.error("Permission denied: You do not have permission to delete analyses.");
+    } else {
+      console.warn("Firestore delete failed:", e);
+    }
     return false;
   }
 }

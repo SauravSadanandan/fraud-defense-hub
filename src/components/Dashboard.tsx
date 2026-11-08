@@ -19,8 +19,15 @@ import { DataTables } from "@/components/DataTables";
 import { formatNumber } from "@/lib/format";
 import { exportReport } from "@/lib/exportXlsx";
 import { saveAnalysis } from "@/lib/firestore";
-import { loadPublisherMap, setPublisher, publishersForApp, pubKey, type PublisherMap } from "@/lib/publishers";
+import {
+  loadPublisherMap,
+  setPublisher,
+  publishersForApp,
+  pubKey,
+  type PublisherMap,
+} from "@/lib/publishers";
 import { resolveView } from "@/lib/aggregate";
+import { useAuth } from "@/lib/auth";
 import type { AnalysisResult } from "@/engine/types";
 
 export function Dashboard({
@@ -32,6 +39,12 @@ export function Dashboard({
   fileName: string;
   onSaved?: () => void;
 }) {
+  const { can } = useAuth();
+  const canSave = can("analysis.save");
+  const canExport = can("analysis.export");
+  const canManagePublishers = can("publishers.manage");
+  const canViewPublishers = can("publishers.view") || canManagePublishers;
+
   const [selection, setSelection] = useState("all");
   const [saving, setSaving] = useState(false);
   const [map, setMap] = useState<PublisherMap>({});
@@ -43,6 +56,7 @@ export function Dashboard({
   }, [result]);
 
   useEffect(() => {
+    if (!canViewPublishers) return;
     let active = true;
     void loadPublisherMap().then((m) => {
       if (active) setMap(m);
@@ -50,7 +64,7 @@ export function Dashboard({
     return () => {
       active = false;
     };
-  }, [result]);
+  }, [result, canViewPublishers]);
 
   const publishers = useMemo(
     () => publishersForApp(map, result.appName, result.pids),
@@ -62,15 +76,19 @@ export function Dashboard({
   const activePid = selection.startsWith("pid:") ? selection.slice(4) : null;
 
   function onExport() {
+    if (!canExport) return;
     try {
       const name = exportReport(result, view.scope === "all" ? "all" : view.pids);
       toast.success("Report exported", { description: name });
     } catch (e) {
-      toast.error("Export failed", { description: e instanceof Error ? e.message : "Unknown error" });
+      toast.error("Export failed", {
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
     }
   }
 
   async function onSave() {
+    if (!canSave) return;
     setSaving(true);
     const label = `${result.appName} · ${result.mode} · ${fileName}`;
     const id = await saveAnalysis(result, label);
@@ -80,13 +98,13 @@ export function Dashboard({
       onSaved?.();
     } else {
       toast.error("Could not save", {
-        description: "Firestore unavailable. Configure firebase.ts to enable persistence.",
+        description: "Firestore unavailable. Check your permissions and connection.",
       });
     }
   }
 
   async function saveTag() {
-    if (!activePid) return;
+    if (!canManagePublishers || !activePid) return;
     const name = tagValue.trim();
     await setPublisher(result.appName, activePid, name);
     setMap((prev) => {
@@ -117,7 +135,8 @@ export function Dashboard({
             )}
           </div>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {fileName} · {formatNumber(result.totalRows)} rows · {formatNumber(result.flaggedRows)} flagged
+            {fileName} · {formatNumber(result.totalRows)} rows · {formatNumber(result.flaggedRows)}{" "}
+            flagged
             {result.startDate && ` · ${result.startDate} → ${result.endDate}`}
           </p>
         </div>
@@ -153,7 +172,7 @@ export function Dashboard({
             </SelectContent>
           </Select>
 
-          {activePid && (
+          {activePid && canManagePublishers && (
             <Popover
               open={tagOpen}
               onOpenChange={(o) => {
@@ -170,8 +189,9 @@ export function Dashboard({
                 <div>
                   <div className="text-sm font-medium">Assign publisher</div>
                   <p className="text-xs text-muted-foreground">
-                    For <span className="font-medium text-foreground">{activePid}</span> on {result.appName}. Saved per
-                    app, so the same PID can map to a different publisher elsewhere.
+                    For <span className="font-medium text-foreground">{activePid}</span> on{" "}
+                    {result.appName}. Saved per app, so the same PID can map to a different
+                    publisher elsewhere.
                   </p>
                 </div>
                 <Input
@@ -198,10 +218,22 @@ export function Dashboard({
             </Popover>
           )}
 
-          <Button variant="outline" onClick={onSave} disabled={saving} className="gap-1.5">
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save
+          <Button
+            variant="outline"
+            onClick={onSave}
+            disabled={saving || !canSave}
+            className="gap-1.5"
+            title={!canSave ? "Saving is disabled for your role" : undefined}
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}{" "}
+            Save
           </Button>
-          <Button onClick={onExport} className="gap-1.5">
+          <Button
+            onClick={onExport}
+            disabled={!canExport}
+            className="gap-1.5"
+            title={!canExport ? "Exporting is disabled for your role" : undefined}
+          >
             <Download className="size-4" /> Export XLSX
           </Button>
         </div>

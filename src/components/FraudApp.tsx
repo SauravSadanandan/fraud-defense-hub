@@ -1,32 +1,20 @@
 import { useState } from "react";
-import { LogOut, Plus, Loader2 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Login } from "@/components/Login";
+import { UserMenu } from "@/components/UserMenu";
+import { AuthGate } from "@/components/AuthGate";
 import { Workspace } from "@/components/Workspace";
 import { Dashboard } from "@/components/Dashboard";
 import { DataBrowser } from "@/components/DataBrowser";
-import { useAuth } from "@/lib/auth";
 import type { AnalysisResult } from "@/engine/types";
 
 function Shell() {
-  const { user, logout } = useAuth();
   const [mode, setMode] = useState<"Install" | "Event">("Install");
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [fileName, setFileName] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
-
-  const initials = (user?.name || "A").slice(0, 2).toUpperCase();
 
   return (
     <div className="min-h-screen bg-background">
@@ -53,32 +41,18 @@ function Shell() {
               }}
             />
             <ThemeToggle />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
-                  <Avatar className="size-8">
-                    <AvatarFallback className="bg-primary text-xs text-primary-foreground">{initials}</AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>
-                  <div className="font-medium">{user?.name}</div>
-                  <div className="text-xs font-normal text-muted-foreground">{user?.email}</div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive">
-                  <LogOut className="mr-2 size-4" /> Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <UserMenu />
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-8">
         {result ? (
-          <Dashboard result={result} fileName={fileName} onSaved={() => setRefreshKey((k) => k + 1)} />
+          <Dashboard
+            result={result}
+            fileName={fileName}
+            onSaved={() => setRefreshKey((k) => k + 1)}
+          />
         ) : (
           <Workspace
             mode={mode}
@@ -95,13 +69,9 @@ function Shell() {
 }
 
 export function FraudApp() {
-  const { user, ready } = useAuth();
-  if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="size-6 animate-spin text-primary" />
-      </div>
-    );
-  }
-  return user ? <Shell /> : <Login />;
+  return (
+    <AuthGate>
+      <Shell />
+    </AuthGate>
+  );
 }

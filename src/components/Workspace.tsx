@@ -4,6 +4,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dropzone } from "@/components/Dropzone";
 import { listAnalyses, loadAnalysis, type DatasetMeta } from "@/lib/firestore";
 import { formatNumber } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
 import type { AnalysisResult } from "@/engine/types";
 
 const FEATURES = [
@@ -21,11 +22,18 @@ export function Workspace({
   setMode: (m: "Install" | "Event") => void;
   onResult: (r: AnalysisResult, fileName: string) => void;
 }) {
+  const { can } = useAuth();
+  const canViewAnalyses = can("analysis.view");
+
   const [recent, setRecent] = useState<DatasetMeta[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!canViewAnalyses) {
+      setLoadingRecent(false);
+      return;
+    }
     let active = true;
     void listAnalyses().then((list) => {
       if (active) {
@@ -36,10 +44,13 @@ export function Workspace({
     return () => {
       active = false;
     };
-  }, []);
+  }, [canViewAnalyses]);
 
   const apps = useMemo(() => {
-    const byApp: Record<string, { appName: string; count: number; flagged: number; latest: DatasetMeta }> = {};
+    const byApp: Record<
+      string,
+      { appName: string; count: number; flagged: number; latest: DatasetMeta }
+    > = {};
     recent.forEach((it) => {
       const key = it.appName || "App";
       if (!byApp[key]) byApp[key] = { appName: key, count: 0, flagged: 0, latest: it };
@@ -51,6 +62,7 @@ export function Workspace({
   }, [recent]);
 
   async function openApp(meta: DatasetMeta) {
+    if (!canViewAnalyses) return;
     setBusyId(meta.id);
     const r = await loadAnalysis(meta.id);
     setBusyId(null);
@@ -66,7 +78,9 @@ export function Workspace({
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h1 className="text-lg font-semibold tracking-tight">Upload AppsFlyer raw data</h1>
-                <p className="text-xs text-muted-foreground">Processed locally in your browser — handles 50k+ rows.</p>
+                <p className="text-xs text-muted-foreground">
+                  Processed locally in your browser — handles 50k+ rows.
+                </p>
               </div>
               <Tabs value={mode} onValueChange={(v) => setMode(v as "Install" | "Event")}>
                 <TabsList>
@@ -94,11 +108,13 @@ export function Workspace({
       </div>
 
       {/* Recent apps */}
-      {(loadingRecent || apps.length > 0) && (
+      {canViewAnalyses && (loadingRecent || apps.length > 0) && (
         <div>
           <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
             <FolderTree className="size-4 text-primary" /> Your apps
-            <span className="text-xs font-normal text-muted-foreground">— open a saved analysis</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              — open a saved analysis
+            </span>
           </div>
           {loadingRecent ? (
             <div className="flex items-center justify-center rounded-2xl border border-border py-10 text-muted-foreground">

@@ -1,4 +1,5 @@
-import { getFirebase, ensureFirebaseSession } from "./firebase";
+import { toast } from "sonner";
+import { getFirebase } from "./firebase";
 
 // Maps a PID (media source) to a human "Publisher" name.
 // Keyed per-APP because a PID can be re-brokered: the same media source may be
@@ -38,12 +39,20 @@ function writeLocal(map: PublisherMap): void {
   }
 }
 
+function isPermissionDenied(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code: string }).code === "permission-denied"
+  );
+}
+
 export async function loadPublisherMap(): Promise<PublisherMap> {
   const local = readLocal();
   const fb = getFirebase();
-  if (!fb) return local;
-  const ok = await ensureFirebaseSession();
-  if (!ok) return local;
+  if (!fb || !fb.auth.currentUser) return local;
+
   try {
     const { collection, getDocs } = await import("firebase/firestore");
     const snap = await getDocs(collection(fb.db, COLLECTION));
@@ -58,7 +67,11 @@ export async function loadPublisherMap(): Promise<PublisherMap> {
     writeLocal(merged);
     return merged;
   } catch (e) {
-    console.warn("Publisher map load failed (client-side only):", e);
+    if (isPermissionDenied(e)) {
+      toast.error("Permission denied: You do not have permission to view publisher mappings.");
+    } else {
+      console.warn("Publisher map load failed:", e);
+    }
     return local;
   }
 }
@@ -72,16 +85,22 @@ export async function setPublisher(appName: string, pid: string, publisher: stri
   writeLocal(local);
 
   const fb = getFirebase();
-  if (!fb) return;
-  const ok = await ensureFirebaseSession();
-  if (!ok) return;
+  if (!fb || !fb.auth.currentUser) return;
+
   try {
     const { doc, setDoc, deleteDoc } = await import("firebase/firestore");
     const ref = doc(fb.db, COLLECTION, docId(key));
-    if (name) await setDoc(ref, { appName, pid, publisher: name, updatedAt: Date.now() });
-    else await deleteDoc(ref);
+    if (name) {
+      await setDoc(ref, { appName, pid, publisher: name, updatedAt: Date.now() });
+    } else {
+      await deleteDoc(ref);
+    }
   } catch (e) {
-    console.warn("Publisher map save failed (client-side only):", e);
+    if (isPermissionDenied(e)) {
+      toast.error("Permission denied: You do not have permission to modify publisher mappings.");
+    } else {
+      console.warn("Publisher map save failed:", e);
+    }
   }
 }
 
