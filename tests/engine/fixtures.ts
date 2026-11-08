@@ -181,7 +181,12 @@ export function generateInstallRows(seed = 42): { headers: string[]; rows: unkno
   }
 
   // 4. Null Device Keywords ("unknown", "generic", "emulator", "sdk") — 16 rows
-  const nullModels = ["Generic Android Emulator", "sdk_gphone64_arm64", "unknown_device", "google_sdk_x86"];
+  const nullModels = [
+    "Generic Android Emulator",
+    "sdk_gphone64_arm64",
+    "unknown_device",
+    "google_sdk_x86",
+  ];
   for (let i = 0; i < 16; i++) {
     rows.push(
       buildRow({
@@ -242,7 +247,8 @@ export function generateInstallRows(seed = 42): { headers: string[]; rows: unkno
 
   // 8. IDFA Reuse (>1 row with same IDFA) — 8 rows (iOS platform, 2 IDFAs reused 4x each)
   for (let i = 0; i < 8; i++) {
-    const reusedIdfa = i < 4 ? "EA7583CD-A667-48BC-B806-42ECB2B48D12" : "FA8583CD-B778-49CD-C917-53FDC3C59E23";
+    const reusedIdfa =
+      i < 4 ? "EA7583CD-A667-48BC-B806-42ECB2B48D12" : "FA8583CD-B778-49CD-C917-53FDC3C59E23";
     rows.push(
       buildRow({
         appsflyerId: `af_reuseidfa_${i}`,
@@ -671,7 +677,13 @@ export function generateEventRows(seed = 42): { headers: string[]; rows: unknown
 
   // Fill up to ~800 rows with normal baseline events across various users
   const remaining = 800 - rows.length;
-  const normalEvents = ["af_first_open", "af_login", "af_view_item", "af_add_to_cart", "af_purchase"];
+  const normalEvents = [
+    "af_first_open",
+    "af_login",
+    "af_view_item",
+    "af_add_to_cart",
+    "af_purchase",
+  ];
   const normalSources = ["googleadwords_int", "tiktok_int", "snapchat_int", "organic"];
 
   for (let i = 0; i < remaining; i++) {

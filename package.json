@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "vitest run tests/rules/permissions-drift.test.ts",
+    "test": "vitest run --exclude tests/rules/firestore.rules.test.ts",
     "test:rules": "firebase emulators:exec --only firestore --project demo-farg \"vitest run tests/rules/firestore.rules.test.ts\"",
     "verify": "bun scripts/run-checks.mjs"
   },
