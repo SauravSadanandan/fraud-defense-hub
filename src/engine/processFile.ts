@@ -6,12 +6,10 @@ import type { AnalysisResult } from "./types";
 
 export type ProgressFn = (progress: number, message: string) => void;
 
-export async function processFile(
+export async function parseFile(
   file: File,
-  mode: "Install" | "Event",
-  settings: Settings = DEFAULT_SETTINGS,
   onProgress?: ProgressFn,
-): Promise<AnalysisResult> {
+): Promise<{ headers: string[]; rows: unknown[][] }> {
   onProgress?.(8, "Reading file…");
   const name = (file.name || "").toLowerCase();
   let headers: string[] = [];
@@ -24,7 +22,9 @@ export async function processFile(
     if (!ws) throw new Error("The spreadsheet has no readable sheet.");
     const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: false, defval: "" });
     headers = (aoa[0] || []).map((h) => String(h ?? ""));
-    rows = aoa.slice(1).filter((r) => Array.isArray(r) && r.some((c) => c !== "" && c !== null && c !== undefined));
+    rows = aoa
+      .slice(1)
+      .filter((r) => Array.isArray(r) && r.some((c) => c !== "" && c !== null && c !== undefined));
   } else {
     const text = await file.text();
     const parsed = Papa.parse<string[]>(text, { skipEmptyLines: "greedy" });
@@ -36,5 +36,15 @@ export async function processFile(
 
   if (!headers.length) throw new Error("No header row found in the file.");
   onProgress?.(30, `Parsed ${rows.length.toLocaleString()} rows`);
+  return { headers, rows };
+}
+
+export async function processFile(
+  file: File,
+  mode: "Install" | "Event",
+  settings: Settings = DEFAULT_SETTINGS,
+  onProgress?: ProgressFn,
+): Promise<AnalysisResult> {
+  const { headers, rows } = await parseFile(file, onProgress);
   return analyze(headers, rows, mode, settings, onProgress);
 }
