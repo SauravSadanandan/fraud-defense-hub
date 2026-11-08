@@ -1,56 +1,50 @@
 # Deploying to Firebase
 
-This is a client-side app: all fraud analysis runs in the browser, and Firebase
-is used only for **Auth** (anonymous session for the default Admin login, plus
-optional email/password users) and **Firestore** (saved analyses + publisher
-mappings).
+This is a client-side application: all fraud analysis runs locally in the browser (via Web Worker), and Firebase is utilized strictly for **Authentication** (Email/Password with role-based access control) and **Firestore** (saved analyses, chunks, publisher mappings, and member profiles).
 
-## 1. Put your real Firebase web config in the app
+## 1. Authentication & Access Control
 
-Open `src/lib/firebase.ts` and replace the placeholder `firebaseConfig` values
-with the config from **Firebase Console → Project settings → Your apps → Web app**.
-The web config (apiKey, authDomain, projectId, …) is a public identifier set and
-is safe to commit — your data is protected by Auth + the Firestore rules below.
+Access to this application is strictly invite-only:
 
-## 2. Enable the Firebase products you use
+- Hardcoded operator credentials and anonymous sign-in have been completely deprecated.
+- Access requires a registered Firebase Authentication email/password user and an active Firestore profile (`users/{uid}`).
+- Full RBAC (roles and granular permissions) is server-enforced through Firestore Security Rules.
+- For complete rollout instructions, initial administrator setup, and hardening steps, refer to [SECURITY_ROLLOUT.md](docs/SECURITY_ROLLOUT.md).
 
-- **Authentication → Sign-in method →** enable **Anonymous** (required for the
-  default `Admin` login to persist to Firestore). Enable **Email/Password** too
-  if you want extra named accounts.
-- **Firestore Database →** create a database (Production mode is fine — the rules
-  below grant access to signed-in users).
+## 2. Firebase Web Configuration
 
-## 3. Deploy the security rules
+The Firebase web configuration is present in `src/lib/firebase.ts`. The web configuration (`apiKey`, `authDomain`, `projectId`, etc.) is a public identifier set safe to commit; all data access is strictly governed by Firebase Authentication and Firestore Security Rules.
+
+## 3. Enable Required Firebase Services
+
+In the [Firebase Console](https://console.firebase.google.com/):
+
+- **Authentication → Sign-in method →** enable **Email/Password**.
+- **Firestore Database →** create a Firestore database in production mode.
+
+## 4. Deploying Firestore Security Rules
+
+To deploy the security rules:
 
 ```bash
 npm i -g firebase-tools     # once
 firebase login
-firebase use farg-e74ca     # or your project id (edit .firebaserc)
+firebase use farg-e74ca     # or your target project id
 firebase deploy --only firestore:rules
 ```
 
-`firestore.rules` restricts `fraud_datasets` and `publisher_map` to
-authenticated sessions and denies everything else.
+`firestore.rules` enforces role-based access control across all collections and denies unauthorized access by default.
 
-## 4. Get a web app link (hosting)
+## 5. Web Application Hosting
 
-Two options:
+Continuous Deployment is configured via GitHub Actions (`.github/workflows/firebase-deploy.yml`) on merges to `main`.
 
-### Option A — Lovable Publish (fastest)
-Click **Publish** in Lovable. You immediately get a live `*.lovable.app` link
-and can attach a custom domain. Nothing else to configure.
-
-### Option B — Firebase Hosting
-This project builds with TanStack Start / nitro. Build the static client bundle
-with the Firebase preset, then deploy:
+To build and deploy manually:
 
 ```bash
-NITRO_PRESET=firebase npm run build
+bun install
+bun run build
 firebase deploy --only hosting
 ```
 
-`firebase.json` serves `.output/public` with an SPA fallback so client routes
-resolve. Your link will be `https://<project-id>.web.app`.
-
-> Tip: if you only need the static single-page app, any static host works —
-> point it at the built `public` output with an `index.html` rewrite fallback.
+`firebase.json` serves the built client SPA from `dist/client` with an SPA rewrite (`** → /index.html`) and security headers.
