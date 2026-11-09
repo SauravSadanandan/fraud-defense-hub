@@ -1,10 +1,6 @@
-// Ported constants from the SNABBIT AppsFlyer Fraud Analysis GAS (v14).
+// Ported constants from the AppsFlyer Fraud Analysis engine.
 export const CONFIG = {
-  CTIT_CLICK_INJECT_S: 10,
-  CTIT_CLICK_FLOOD_DAYS: 1,
-  IP_FARM_THRESHOLD: 10,
   GAID_ZERO: "00000000-0000-0000-0000-000000000000",
-  NULL_DEVICE_KEYWORDS: ["unknown", "generic", "emulator", "sdk"],
 };
 
 // AppsFlyer raw export column headers.
@@ -48,9 +44,9 @@ export interface GeoRule {
 }
 
 export interface FunnelStage {
-  name: string; // Event name, e.g. "af_first_open"
-  label?: string; // Human-friendly label, e.g. "First Open"
-  order: number; // 0-indexed order
+  label: string; // Human-friendly stage label
+  eventNames: string[]; // Aliases/event names belonging to this stage
+  optional: boolean; // Whether stage can be skipped without flagging fraud
 }
 
 export interface Thresholds {
@@ -65,8 +61,8 @@ export interface Thresholds {
   uniformTimingMinCount: number;
   uniformTimingBucketSeconds: number;
   outdatedOsMaxMajor: {
-    android: number;
-    ios: number;
+    android: number | null;
+    ios: number | null;
   };
 }
 
@@ -76,6 +72,8 @@ export interface Settings {
   funnelStages: FunnelStage[];
   timezoneLabel: string;
   thresholds: Thresholds;
+  flagZeroedGaid: boolean;
+  emulatorKeywords: string[];
   buildFlaggedInstalls: boolean;
   buildFlaggedEvents: boolean;
 }
@@ -93,7 +91,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   uniformTimingBucketSeconds: 5,
   outdatedOsMaxMajor: {
     android: 9,
-    ios: 14,
+    ios: 9,
   },
 };
 
@@ -106,12 +104,14 @@ export const DEFAULT_SETTINGS: Settings = {
     },
   ],
   funnelStages: [
-    { name: "af_first_open", label: "First Open", order: 0 },
-    { name: "af_login", label: "Login", order: 1 },
-    { name: "af_purchase", label: "Purchase", order: 2 },
+    { label: "af_first_open", eventNames: ["af_first_open"], optional: false },
+    { label: "af_login", eventNames: ["af_login"], optional: false },
+    { label: "af_purchase", eventNames: ["af_purchase"], optional: false },
   ],
   timezoneLabel: "IST",
   thresholds: { ...DEFAULT_THRESHOLDS },
+  flagZeroedGaid: true,
+  emulatorKeywords: ["unknown", "generic", "emulator", "sdk"],
   buildFlaggedInstalls: true,
   buildFlaggedEvents: true,
 };
@@ -122,6 +122,8 @@ export const BLANK_SETTINGS: Settings = {
   funnelStages: [],
   timezoneLabel: "UTC",
   thresholds: { ...DEFAULT_THRESHOLDS },
+  flagZeroedGaid: true,
+  emulatorKeywords: ["unknown", "generic", "emulator", "sdk"],
   buildFlaggedInstalls: true,
   buildFlaggedEvents: true,
 };
@@ -129,6 +131,20 @@ export const BLANK_SETTINGS: Settings = {
 function numOrDefault(val: unknown, def: number, min = 1): number {
   if (typeof val === "number" && !isNaN(val) && isFinite(val) && val >= min) {
     return val;
+  }
+  return def;
+}
+
+function parseOsThreshold(val: unknown, def: number | null): number | null {
+  if (val === null) return null;
+  if (typeof val === "number" && !isNaN(val) && isFinite(val) && val >= 1) {
+    return Math.floor(val);
+  }
+  if (typeof val === "string") {
+    const trimmed = val.trim().toLowerCase();
+    if (trimmed === "" || trimmed === "null" || trimmed === "disabled") return null;
+    const parsed = parseInt(trimmed, 10);
+    if (!isNaN(parsed) && parsed >= 1) return parsed;
   }
   return def;
 }
@@ -177,25 +193,90 @@ export function normalizeSettings(raw: unknown): Settings {
 
   let funnelStages: FunnelStage[] = [];
   if (isV1 && Array.isArray(obj.funnelEvents)) {
+    // Migration 1: legacy v1 funnelEvents string array
     funnelStages = obj.funnelEvents
-      .map((name, idx) => ({
-        name: String(name || "").trim(),
-        order: idx,
-      }))
-      .filter((s) => Boolean(s.name));
-  } else if (Array.isArray(obj.funnelStages)) {
-    funnelStages = obj.funnelStages
-      .map((s, idx) => {
-        if (!s || typeof s !== "object") return null;
-        const sObj = s as Record<string, unknown>;
-        const name = String(sObj.name || "").trim();
-        if (!name) return null;
-        const label = sObj.label ? String(sObj.label).trim() : undefined;
-        const order = typeof sObj.order === "number" && !isNaN(sObj.order) ? sObj.order : idx;
-        return { name, ...(label ? { label } : {}), order };
+      .map((name) => {
+        const str = String(name || "")
+          .trim()
+          .slice(0, 80);
+        return {
+          label: str,
+          eventNames: [str],
+          optional: false,
+        };
       })
-      .filter((s): s is FunnelStage => s !== null)
-      .sort((a, b) => a.order - b.order);
+      .filter((s) => s.label.length > 0)
+      .slice(0, 30);
+  } else if (Array.isArray(obj.funnelStages)) {
+    const rawStages = obj.funnelStages;
+    // Check if intermediate shape ({ name, label?, order? })
+    const isIntermediate = rawStages.some(
+      (s) => s && typeof s === "object" && "name" in (s as Record<string, unknown>),
+    );
+
+    if (isIntermediate) {
+      // Migration 2: intermediate { name, label?, order? } shape
+      type IntermediateStage = { name?: unknown; label?: unknown; order?: unknown };
+      const sorted = (rawStages as IntermediateStage[]).slice().sort((a, b) => {
+        const orderA = typeof a?.order === "number" ? a.order : 0;
+        const orderB = typeof b?.order === "number" ? b.order : 0;
+        return orderA - orderB;
+      });
+
+      funnelStages = sorted
+        .map((s) => {
+          if (!s || typeof s !== "object") return null;
+          const rawName = String(s.name || "")
+            .trim()
+            .slice(0, 80);
+          const rawLabel = String(s.label || s.name || "")
+            .trim()
+            .slice(0, 80);
+          if (!rawName && !rawLabel) return null;
+          const label = rawLabel || rawName;
+          const eventName = rawName || rawLabel;
+          return {
+            label,
+            eventNames: [eventName],
+            optional: false,
+          };
+        })
+        .filter((s): s is FunnelStage => s !== null && s.eventNames.length > 0)
+        .slice(0, 30);
+    } else {
+      // Shape v2: { label, eventNames, optional }
+      funnelStages = rawStages
+        .map((s) => {
+          if (!s || typeof s !== "object") return null;
+          const sObj = s as Record<string, unknown>;
+          const rawEventNames = Array.isArray(sObj.eventNames) ? sObj.eventNames : [];
+          const eventNames = Array.from(
+            new Set(
+              rawEventNames
+                .map((e) =>
+                  String(e || "")
+                    .trim()
+                    .slice(0, 80),
+                )
+                .filter(Boolean),
+            ),
+          ).slice(0, 10);
+
+          const rawLabel = String(sObj.label || "")
+            .trim()
+            .slice(0, 80);
+          const label = rawLabel || eventNames[0] || "";
+          if (!label || eventNames.length === 0) return null;
+
+          return {
+            label,
+            eventNames,
+            optional: Boolean(sObj.optional),
+          };
+        })
+        .filter((s): s is FunnelStage => s !== null)
+        .slice(0, 30);
+    }
   }
 
   const rawThresholds = (
@@ -250,12 +331,39 @@ export function normalizeSettings(raw: unknown): Settings {
       DEFAULT_THRESHOLDS.uniformTimingBucketSeconds,
     ),
     outdatedOsMaxMajor: {
-      android: numOrDefault(rawOs.android, DEFAULT_THRESHOLDS.outdatedOsMaxMajor.android),
-      ios: numOrDefault(rawOs.ios, DEFAULT_THRESHOLDS.outdatedOsMaxMajor.ios),
+      android: parseOsThreshold(
+        rawOs.android !== undefined ? rawOs.android : rawThresholds.outdatedOsAndroid,
+        DEFAULT_THRESHOLDS.outdatedOsMaxMajor.android,
+      ),
+      ios: parseOsThreshold(
+        rawOs.ios !== undefined ? rawOs.ios : rawThresholds.outdatedOsIos,
+        DEFAULT_THRESHOLDS.outdatedOsMaxMajor.ios,
+      ),
     },
   };
 
   const timezoneLabel = String(obj.timezoneLabel || "").trim() || (isV1 ? "IST" : "UTC");
+  const flagZeroedGaid = Boolean(obj.flagZeroedGaid ?? true);
+
+  let emulatorKeywords: string[] = ["unknown", "generic", "emulator", "sdk"];
+  if (Array.isArray(obj.emulatorKeywords)) {
+    const cleaned = Array.from(
+      new Set(
+        obj.emulatorKeywords
+          .map((k) =>
+            String(k || "")
+              .trim()
+              .toLowerCase()
+              .slice(0, 40),
+          )
+          .filter(Boolean),
+      ),
+    ).slice(0, 30);
+    if (cleaned.length > 0) {
+      emulatorKeywords = cleaned;
+    }
+  }
+
   const buildFlaggedInstalls = Boolean(obj.buildFlaggedInstalls ?? true);
   const buildFlaggedEvents = Boolean(obj.buildFlaggedEvents ?? true);
 
@@ -265,6 +373,8 @@ export function normalizeSettings(raw: unknown): Settings {
     funnelStages,
     timezoneLabel,
     thresholds,
+    flagZeroedGaid,
+    emulatorKeywords,
     buildFlaggedInstalls,
     buildFlaggedEvents,
   };

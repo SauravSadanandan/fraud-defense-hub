@@ -131,11 +131,14 @@ export function enrichRows(headers: string[], rows: Row[], rawSettings?: Setting
     }
     if (ip && ipMap[ip] >= settings.thresholds.ipFarmThreshold)
       signals.push(`IP Farm (${ipMap[ip]} occurrences)`);
-    if (deviceModelRaw && CONFIG.NULL_DEVICE_KEYWORDS.some((k) => deviceModel.includes(k)))
+    if (deviceModelRaw && settings.emulatorKeywords.some((k) => deviceModel.includes(k)))
       signals.push("Unknown Device Model (Emulator)");
     if (isPrimaryRaw === "false" || String(isPrimaryRaw).toLowerCase() === "false")
       signals.push("Non-Primary Attribution (Assist Fraud)");
-    if (gaid === CONFIG.GAID_ZERO) signals.push("Zeroed GAID (Device Farm/ID Spoof)");
+
+    if (settings.flagZeroedGaid && gaid === CONFIG.GAID_ZERO)
+      signals.push("Zeroed GAID (Device Farm/ID Spoof)");
+
     if (gaid && gaid !== CONFIG.GAID_ZERO && gaidMap[gaid] > 1)
       signals.push(`GAID Reuse (${gaidMap[gaid]}x)`);
     if (idfa && idfa.trim() !== "" && idfaMap[idfa] > 1)
@@ -174,12 +177,12 @@ export function enrichRows(headers: string[], rows: Row[], rawSettings?: Setting
 
     const osNum = parseInt(osVersion, 10);
     const isIos = platform === "ios" || platform === "iphone" || platform === "ipad";
-    if (isIos) {
-      if (!isNaN(osNum) && osNum <= settings.thresholds.outdatedOsMaxMajor.ios)
-        signals.push(`Outdated OS (iOS ${osVersion})`);
-    } else {
-      if (!isNaN(osNum) && osNum <= settings.thresholds.outdatedOsMaxMajor.android)
-        signals.push(`Outdated OS (Android ${osVersion})`);
+    const maxOs = isIos
+      ? settings.thresholds.outdatedOsMaxMajor.ios
+      : settings.thresholds.outdatedOsMaxMajor.android;
+    if (!isNaN(osNum) && maxOs !== null && osNum <= maxOs) {
+      const osPlatformLabel = isIos ? "iOS" : "Android";
+      signals.push(`Outdated OS (${osPlatformLabel} ${osVersion})`);
     }
 
     if (
@@ -258,11 +261,26 @@ export function computeEventSpecificFraud(
 } {
   const settings = normalizeSettings(rawSettings);
   const eventsByAfId: Record<string, EnrichedRow[]> = {};
-  const stages = (settings.funnelStages || []).slice().sort((a, b) => a.order - b.order);
-  const funnelEvents = stages.map((s) => s.name);
-  const stageIndexMap: Record<string, number> = {};
-  funnelEvents.forEach((name, i) => (stageIndexMap[name] = i));
-  const funnelStageCounts = funnelEvents.map(() => 0);
+  const stages = settings.funnelStages || [];
+
+  if (stages.length === 0) {
+    return { perInstallFlags: {}, funnel: null };
+  }
+
+  // Normalized map: alias -> stage index (first stage wins on duplicate)
+  const aliasToStage = new Map<string, number>();
+  stages.forEach((stage, stageIdx) => {
+    (stage.eventNames || []).forEach((name) => {
+      const norm = String(name || "")
+        .trim()
+        .toLowerCase();
+      if (norm && !aliasToStage.has(norm)) {
+        aliasToStage.set(norm, stageIdx);
+      }
+    });
+  });
+
+  const funnelStageCounts = stages.map(() => 0);
   const bucketSec = settings.thresholds.uniformTimingBucketSeconds || 5;
   const deltaBucketMap: Record<string, number> = {};
   const perInstallFlags: Record<string, PerInstallFlag> = {};
@@ -280,16 +298,20 @@ export function computeEventSpecificFraud(
     const evs = eventsByAfId[afId];
     const presentStages = new Set<number>();
     evs.forEach((e) => {
-      if (e.eventName && stageIndexMap[e.eventName] !== undefined)
-        presentStages.add(stageIndexMap[e.eventName]);
+      if (e.eventName) {
+        const norm = e.eventName.trim().toLowerCase();
+        const stageIdx = aliasToStage.get(norm);
+        if (stageIdx !== undefined) presentStages.add(stageIdx);
+      }
     });
+
     if (presentStages.size > 0) {
       const maxIdx = Math.max(...presentStages);
       funnelStageCounts[maxIdx]++;
       let missingDesc: string | null = null;
       for (let j = 0; j < maxIdx; j++) {
-        if (!presentStages.has(j)) {
-          missingDesc = `Missing "${funnelEvents[j]}" (stage ${j + 1}) but reached "${funnelEvents[maxIdx]}" (stage ${maxIdx + 1})`;
+        if (!presentStages.has(j) && !stages[j].optional) {
+          missingDesc = `Missing "${stages[j].label}" (stage ${j + 1}) but reached "${stages[maxIdx].label}" (stage ${maxIdx + 1})`;
           break;
         }
       }
@@ -347,7 +369,7 @@ export function computeEventSpecificFraud(
   );
   return {
     perInstallFlags,
-    funnel: stages.length ? { events: funnelEvents, counts: cumulative } : null,
+    funnel: { events: stages.map((s) => s.label), counts: cumulative },
   };
 }
 
@@ -396,7 +418,7 @@ function updateState(
   if (e.fraudReason === "click_flood") s.clickFlood++;
   if (e.fraudReason === "install_hijacking") s.hijack++;
   if (e.fraudReason === "bots") s.bots++;
-  if (e.gaid === CONFIG.GAID_ZERO) s.zeroGaid++;
+  if (settings.flagZeroedGaid && e.gaid === CONFIG.GAID_ZERO) s.zeroGaid++;
   if (e.ctitHours !== null && e.ctitHours > floodHours) s.ctitHigh++;
   if (e.ctitSeconds !== null && e.ctitSeconds < injectSec) s.ctitLow++;
   if (e.ctitSeconds !== null) {
@@ -477,13 +499,13 @@ function buildPublishers(enriched: EnrichedRow[], settings: Settings): Publisher
       p.ctitSum += e.ctitSeconds;
       p.ctitCount++;
     }
-    if (e.gaid === CONFIG.GAID_ZERO) p.zeroGaid++;
+    if (settings.flagZeroedGaid && e.gaid === CONFIG.GAID_ZERO) p.zeroGaid++;
     const os = parseInt(e.osVersion, 10);
     const isIos = e.platform === "ios" || e.platform === "iphone" || e.platform === "ipad";
-    const osThreshold = isIos
+    const maxOs = isIos
       ? settings.thresholds.outdatedOsMaxMajor.ios
       : settings.thresholds.outdatedOsMaxMajor.android;
-    if (!isNaN(os) && os <= osThreshold) p.outdatedOs++;
+    if (!isNaN(os) && maxOs !== null && os <= maxOs) p.outdatedOs++;
   });
   return Object.values(map)
     .map((p) => {
