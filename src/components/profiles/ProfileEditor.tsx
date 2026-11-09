@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import {
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TagInput } from "./TagInput";
 import { GeoRulesEditor } from "./GeoRulesEditor";
 import { FunnelEditor } from "./FunnelEditor";
 import { ThresholdsFields } from "./ThresholdsFields";
@@ -28,6 +29,7 @@ interface ProfileEditorProps {
   onSave: (data: {
     name: string;
     description?: string;
+    appNames?: string[];
     settings: CampaignProfile["settings"];
   }) => Promise<void>;
   saving?: boolean;
@@ -53,10 +55,13 @@ export function ProfileEditor({
     defaultValues: {
       name: "",
       description: "",
+      appNames: [],
       timezoneLabel: "IST",
       geos: DEFAULT_SETTINGS.geos,
       funnelStages: DEFAULT_SETTINGS.funnelStages,
       thresholds: DEFAULT_SETTINGS.thresholds,
+      flagZeroedGaid: DEFAULT_SETTINGS.flagZeroedGaid,
+      emulatorKeywords: DEFAULT_SETTINGS.emulatorKeywords,
       buildFlaggedInstalls: true,
       buildFlaggedEvents: true,
     },
@@ -68,10 +73,18 @@ export function ProfileEditor({
         reset({
           name: profile.isBuiltin ? `${profile.name} (Custom)` : profile.name,
           description: profile.description || "",
+          appNames: profile.appNames || [],
           timezoneLabel: profile.settings.timezoneLabel || "IST",
           geos: profile.settings.geos || [],
           funnelStages: profile.settings.funnelStages || [],
           thresholds: profile.settings.thresholds,
+          flagZeroedGaid: profile.settings.flagZeroedGaid ?? true,
+          emulatorKeywords: profile.settings.emulatorKeywords || [
+            "unknown",
+            "generic",
+            "emulator",
+            "sdk",
+          ],
           buildFlaggedInstalls: profile.settings.buildFlaggedInstalls ?? true,
           buildFlaggedEvents: profile.settings.buildFlaggedEvents ?? true,
         });
@@ -79,10 +92,13 @@ export function ProfileEditor({
         reset({
           name: "",
           description: "",
+          appNames: [],
           timezoneLabel: "IST",
           geos: DEFAULT_SETTINGS.geos,
           funnelStages: DEFAULT_SETTINGS.funnelStages,
           thresholds: DEFAULT_SETTINGS.thresholds,
+          flagZeroedGaid: true,
+          emulatorKeywords: ["unknown", "generic", "emulator", "sdk"],
           buildFlaggedInstalls: true,
           buildFlaggedEvents: true,
         });
@@ -90,16 +106,19 @@ export function ProfileEditor({
     }
   }, [open, profile, reset]);
 
-  const onSubmit = async (values: ProfileFormValues) => {
+  const onSubmit: SubmitHandler<ProfileFormValues> = async (values) => {
     await onSave({
       name: values.name,
       description: values.description,
+      appNames: values.appNames,
       settings: {
         schemaVersion: 2,
         geos: values.geos,
         funnelStages: values.funnelStages,
         timezoneLabel: values.timezoneLabel,
         thresholds: values.thresholds,
+        flagZeroedGaid: values.flagZeroedGaid,
+        emulatorKeywords: values.emulatorKeywords,
         buildFlaggedInstalls: values.buildFlaggedInstalls,
         buildFlaggedEvents: values.buildFlaggedEvents,
       },
@@ -148,6 +167,7 @@ export function ProfileEditor({
                 <p className="text-[11px] text-destructive">{errors.timezoneLabel.message}</p>
               )}
             </div>
+
             <div className="md:col-span-3 space-y-1">
               <Label htmlFor="profile-desc" className="text-xs">
                 Description (optional)
@@ -157,6 +177,23 @@ export function ProfileEditor({
                 {...register("description")}
                 placeholder="Brief summary of target region, partner requirements, etc."
                 className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="md:col-span-3 space-y-1">
+              <Label className="text-xs">
+                Associated Apps (Auto-suggest when file matches any App Name)
+              </Label>
+              <Controller
+                control={control}
+                name="appNames"
+                render={({ field }) => (
+                  <TagInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="Type app name and press Enter…"
+                  />
+                )}
               />
             </div>
           </div>
@@ -199,8 +236,27 @@ export function ProfileEditor({
               <Controller
                 control={control}
                 name="thresholds"
-                render={({ field }) => (
-                  <ThresholdsFields value={field.value} onChange={field.onChange} />
+                render={({ field: threshField }) => (
+                  <Controller
+                    control={control}
+                    name="flagZeroedGaid"
+                    render={({ field: zeroField }) => (
+                      <Controller
+                        control={control}
+                        name="emulatorKeywords"
+                        render={({ field: emuField }) => (
+                          <ThresholdsFields
+                            value={threshField.value}
+                            onChange={threshField.onChange}
+                            flagZeroedGaid={zeroField.value}
+                            onChangeFlagZeroedGaid={zeroField.onChange}
+                            emulatorKeywords={emuField.value}
+                            onChangeEmulatorKeywords={emuField.onChange}
+                          />
+                        )}
+                      />
+                    )}
+                  />
                 )}
               />
             </TabsContent>

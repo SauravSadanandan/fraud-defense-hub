@@ -19,9 +19,9 @@ export interface GeoRule {
 }
 
 export interface FunnelStage {
-  name: string; // Exact AppsFlyer event name (e.g. "af_first_open")
-  label?: string; // Optional human-readable stage label
-  order: number; // 0-indexed stage progression
+  label: string; // Human-friendly stage label
+  eventNames: string[]; // Event names/aliases belonging to this stage
+  optional: boolean; // When true, skipping this stage does not flag fraud
 }
 
 export interface Thresholds {
@@ -36,8 +36,8 @@ export interface Thresholds {
   uniformTimingMinCount: number; // Min events with identical delta to flag uniform timing (default 5)
   uniformTimingBucketSeconds: number; // Timing delta rounding bucket in seconds (default 5s)
   outdatedOsMaxMajor: {
-    android: number; // Android major OS version threshold (default 9)
-    ios: number; // iOS major OS version threshold (default 14)
+    android: number | null; // Android major OS version threshold (default 9, null to disable)
+    ios: number | null; // iOS major OS version threshold (default 9, null to disable)
   };
 }
 
@@ -47,6 +47,8 @@ export interface Settings {
   funnelStages: FunnelStage[];
   timezoneLabel: string;
   thresholds: Thresholds;
+  flagZeroedGaid: boolean; // Flag 00000000-0000-0000-0000-000000000000 (default true)
+  emulatorKeywords: string[]; // Substrings for emulator detection (default unknown, generic, emulator, sdk)
   buildFlaggedInstalls: boolean;
   buildFlaggedEvents: boolean;
 }
@@ -57,6 +59,7 @@ export interface Settings {
 To ensure backwards compatibility and resilience against partial or legacy inputs:
 
 - Legacy v1 settings (with `targetCountry`, `knownCarriers`, `funnelEvents`, and flat threshold numbers) are automatically migrated to v2 structures.
+- Intermediate branch funnel shapes (`{ name, label?, order? }`) are migrated to `{ label, eventNames: [name], optional: false }`.
 - Negative or non-numeric values fall back to safe positive defaults.
 - Strings are trimmed and sanitized.
 - `src/engine/*` has zero external dependencies on React, Firebase, or Zod.
@@ -91,16 +94,25 @@ Two immutable built-in profiles are provided across all environments:
 - If a country code matches a rule with non-empty `knownCarriers`, the row's `Carrier` is verified against the allowed carrier list. Unmatched carriers trigger `Country/Carrier Mismatch (<CARRIER> unexpected for <COUNTRY>)`.
 - If `geos` is empty, all countries and carriers are allowed.
 
-### Conversion Funnel Analysis
+### Conversion Funnel Analysis (Model v2)
 
-- Stages are evaluated in ascending `order`.
-- If a user triggers an event from stage $N$ without having triggered earlier stages $0 \dots N-1$, all events for that user are flagged with `Missing Funnel Event: Missing "<earlier_stage>" (stage X) but reached "<later_stage>" (stage Y)`.
+- Stages are evaluated in array order. Each stage contains a `label` and one or more `eventNames` aliases.
+- Aliases are matched case-insensitively. If an alias is mapped to multiple stages, the earlier stage takes precedence.
+- If a user triggers an event from stage $N$ without having triggered earlier non-optional stages $0 \dots N-1$, all events for that user are flagged with `Missing Funnel Event: Missing "<earlier_stage_label>" (stage X) but reached "<later_stage_label>" (stage Y)`.
+- Stages marked `optional: true` can be skipped by users without triggering fraud signals.
 
 ### Platform-Aware Outdated OS
 
-- Rows identify platform (`android` vs `ios`).
+- Rows identify platform (`android` vs `ios`). Unknown platforms fall back to Android rules.
 - Android rows are checked against `thresholds.outdatedOsMaxMajor.android` (flagged as `Outdated OS (Android <version>)`).
 - iOS rows are checked against `thresholds.outdatedOsMaxMajor.ios` (flagged as `Outdated OS (iOS <version>)`).
+- Default thresholds are `{ android: 9, ios: 9 }`, matching the original engine behavior where major OS version &le; 9 was flagged.
+- Setting either threshold to `null` disables outdated OS checks for that platform.
+
+### Detection Options
+
+- `flagZeroedGaid: boolean` (default: `true`): When true, rows with `00000000-0000-0000-0000-000000000000` are flagged with `Zeroed GAID (Device Farm/ID Spoof)` and counted in both dashboard and publisher tables. When false, the signal and counters are omitted while GAID reuse checks remain active.
+- `emulatorKeywords: string[]`: Configurable list of substrings (default `["unknown", "generic", "emulator", "sdk"]`) used to flag emulator device models.
 
 ### Dynamic CTIT Buckets & Labels
 
@@ -126,9 +138,17 @@ Two immutable built-in profiles are provided across all environments:
    - `dispose`: Cleans up memory buffers and terminates worker.
    - If Web Workers are unavailable, falls back transparently to main-thread execution.
 
-3. **Run Configuration Dialog (`RunConfigDialog.tsx`)**:
+3. **Profile Suggestion Algorithm (`suggestProfile`)**:
+   Pure suggestion logic without hardcoded country rules:
+   1. A profile whose associated `appNames` contains the scanned `appName` (case-insensitive, trimmed).
+   2. `lastProfileId` if it exists in the active profiles list.
+   3. A profile whose `geos` include the scan's top detected country, preferring saved/custom profiles over built-ins.
+   4. Fallback to `builtin:blank`.
+
+4. **Run Configuration Dialog (`RunConfigDialog.tsx`)**:
    - Pops up after file scan completes.
    - Surfaces auto-detected characteristics and suggests suitable profiles.
+   - Provides a "Use suggested funnel order" action when event data is detected.
    - Allows analysts to choose saved profiles or customize settings inline for a one-off run.
    - Remembers the user's last selected profile across sessions (`farg_last_profile_v1` in `localStorage`).
 

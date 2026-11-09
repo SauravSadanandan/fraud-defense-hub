@@ -32,7 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GeoRulesEditor } from "./profiles/GeoRulesEditor";
 import { FunnelEditor } from "./profiles/FunnelEditor";
 import { ThresholdsFields } from "./profiles/ThresholdsFields";
@@ -40,6 +40,7 @@ import {
   listProfiles,
   getLastProfileId,
   setLastProfileId,
+  suggestProfile,
   type CampaignProfile,
   BUILTIN_INDIA,
 } from "@/lib/profiles";
@@ -108,16 +109,11 @@ export function RunConfigDialog({
 
   const scan = session?.scan;
 
-  // Auto-detect suggestion
+  // Auto-detect suggestion using pure suggestProfile function
   const suggestedProfileId = useMemo(() => {
-    if (!scan || !scan.countries.length) return null;
-    const topCountry = scan.countries[0]?.country;
-    if (topCountry === "IN") return "builtin:india-default";
-    const matched = profiles.find((p) =>
-      p.settings.geos.some((g) => g.country.toUpperCase() === topCountry),
-    );
-    return matched ? matched.id : "builtin:blank";
-  }, [scan, profiles]);
+    if (!session || !profiles.length) return null;
+    return suggestProfile(session.scan, profiles, getLastProfileId(), fileName);
+  }, [session, profiles, fileName]);
 
   const handleProfileChange = (newId: string) => {
     setSelectedProfileId(newId);
@@ -131,6 +127,19 @@ export function RunConfigDialog({
       setCustomSettings(JSON.parse(JSON.stringify(activeProfile.settings)));
     }
     setCustomizing(true);
+  };
+
+  const handleUseSuggestedFunnel = () => {
+    if (!customSettings || !scan || !scan.events.length) return;
+    const stages = scan.events.map((e) => ({
+      label: e.eventName,
+      eventNames: [e.eventName],
+      optional: false,
+    }));
+    setCustomSettings({
+      ...customSettings,
+      funnelStages: stages,
+    });
   };
 
   const handleExecute = async () => {
@@ -387,6 +396,19 @@ export function RunConfigDialog({
                       />
                     </TabsContent>
                     <TabsContent value="funnel" className="mt-3">
+                      {scan && scan.events.length > 0 && (
+                        <div className="flex justify-end mb-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleUseSuggestedFunnel}
+                            className="h-7 text-xs gap-1"
+                          >
+                            <Sparkles className="size-3 text-primary" /> Use suggested funnel order
+                          </Button>
+                        </div>
+                      )}
                       <FunnelEditor
                         value={customSettings.funnelStages}
                         onChange={(funnelStages) =>
@@ -399,6 +421,14 @@ export function RunConfigDialog({
                         value={customSettings.thresholds}
                         onChange={(thresholds) =>
                           setCustomSettings({ ...customSettings, thresholds })
+                        }
+                        flagZeroedGaid={customSettings.flagZeroedGaid}
+                        onChangeFlagZeroedGaid={(flagZeroedGaid) =>
+                          setCustomSettings({ ...customSettings, flagZeroedGaid })
+                        }
+                        emulatorKeywords={customSettings.emulatorKeywords}
+                        onChangeEmulatorKeywords={(emulatorKeywords) =>
+                          setCustomSettings({ ...customSettings, emulatorKeywords })
                         }
                       />
                     </TabsContent>

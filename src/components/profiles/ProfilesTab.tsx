@@ -85,6 +85,7 @@ export function ProfilesTab() {
   const handleSave = async (data: {
     name: string;
     description?: string;
+    appNames?: string[];
     settings: CampaignProfile["settings"];
   }) => {
     setSaving(true);
