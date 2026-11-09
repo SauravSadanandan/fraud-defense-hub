@@ -20,7 +20,7 @@ function makeRow(overrides: Record<string, string> = {}): unknown[] {
   return FIXTURE_HEADERS.map((h) => map[h] ?? "");
 }
 
-describe("Configurable Fraud Thresholds", () => {
+describe("Configurable Fraud Thresholds & Outdated OS", () => {
   it("honors custom CTIT click injection threshold", () => {
     // 7 seconds CTIT
     const row = makeRow({
@@ -61,36 +61,41 @@ describe("Configurable Fraud Thresholds", () => {
     expect(customEnriched[0].signals).not.toContain(expect.stringContaining("Click Flooding"));
   });
 
-  it("honors platform-aware outdated OS threshold", () => {
-    const androidRow = makeRow({
-      Platform: "android",
-      "OS Version": "9",
-    });
-    const iosRow = makeRow({
-      Platform: "ios",
-      "OS Version": "14",
-    });
+  it("applies outdated OS thresholds under defaults (Android <= 9, iOS <= 9)", () => {
+    const android9 = makeRow({ Platform: "android", "OS Version": "9" });
+    const ios9 = makeRow({ Platform: "ios", "OS Version": "9" });
+    const ios12 = makeRow({ Platform: "ios", "OS Version": "12" });
 
-    // Under defaults (android: 9, ios: 14), both are flagged
-    const defaultEnriched = enrichRows(FIXTURE_HEADERS, [androidRow, iosRow], DEFAULT_SETTINGS);
-    expect(defaultEnriched[0].signals).toContain("Outdated OS (Android 9)");
-    expect(defaultEnriched[1].signals).toContain("Outdated OS (iOS 14)");
+    const enriched = enrichRows(FIXTURE_HEADERS, [android9, ios9, ios12], DEFAULT_SETTINGS);
+    expect(enriched[0].signals).toContain("Outdated OS (Android 9)");
+    expect(enriched[1].signals).toContain("Outdated OS (iOS 9)");
+    expect(enriched[2].signals).not.toContain(expect.stringContaining("Outdated OS"));
+  });
 
-    // Lower iOS threshold to 12 -> iOS 14 is clean
-    const customSettings: Settings = {
+  it("allows disabling outdated OS checks per platform with null", () => {
+    const android8 = makeRow({ Platform: "android", "OS Version": "8" });
+    const ios8 = makeRow({ Platform: "ios", "OS Version": "8" });
+
+    const disabledIos: Settings = {
       ...DEFAULT_SETTINGS,
       thresholds: {
         ...DEFAULT_SETTINGS.thresholds,
-        outdatedOsMaxMajor: { android: 8, ios: 12 },
+        outdatedOsMaxMajor: { android: 9, ios: null },
       },
     };
-    const customEnriched = enrichRows(FIXTURE_HEADERS, [androidRow, iosRow], customSettings);
-    expect(customEnriched[0].signals).not.toContain(expect.stringContaining("Outdated OS"));
-    expect(customEnriched[1].signals).not.toContain(expect.stringContaining("Outdated OS"));
+
+    const enriched = enrichRows(FIXTURE_HEADERS, [android8, ios8], disabledIos);
+    expect(enriched[0].signals).toContain("Outdated OS (Android 8)");
+    expect(enriched[1].signals).not.toContain(expect.stringContaining("Outdated OS"));
+  });
+
+  it("uses Android threshold for unknown or other platforms", () => {
+    const unknownRow = makeRow({ Platform: "kaios", "OS Version": "9" });
+    const enriched = enrichRows(FIXTURE_HEADERS, [unknownRow], DEFAULT_SETTINGS);
+    expect(enriched[0].signals).toContain("Outdated OS (Android 9)");
   });
 
   it("uses dynamic timezone label in Time-of-Day cluster signal", () => {
-    // 25 rows from same source all at 10:00 UTC
     const rows = Array.from({ length: 25 }, (_, i) =>
       makeRow({
         "AppsFlyer ID": `af_tz_${i}`,

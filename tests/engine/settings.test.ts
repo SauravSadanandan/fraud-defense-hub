@@ -11,7 +11,9 @@ describe("normalizeSettings", () => {
 
     const s3 = normalizeSettings({});
     expect(s3.schemaVersion).toBe(2);
-    expect(s3.thresholds.ctitClickInjectSec).toBe(DEFAULT_SETTINGS.thresholds.ctitClickInjectSec);
+    expect(s3.flagZeroedGaid).toBe(true);
+    expect(s3.emulatorKeywords).toEqual(["unknown", "generic", "emulator", "sdk"]);
+    expect(s3.thresholds.outdatedOsMaxMajor).toEqual({ android: 9, ios: 9 });
   });
 
   it("migrates legacy v1 settings correctly", () => {
@@ -32,10 +34,11 @@ describe("normalizeSettings", () => {
     expect(normalized.schemaVersion).toBe(2);
     expect(normalized.geos).toEqual([{ country: "US", knownCarriers: ["Verizon", "AT&T"] }]);
     expect(normalized.funnelStages).toEqual([
-      { name: "first_open", order: 0 },
-      { name: "purchase", order: 1 },
+      { label: "first_open", eventNames: ["first_open"], optional: false },
+      { label: "purchase", eventNames: ["purchase"], optional: false },
     ]);
     expect(normalized.timezoneLabel).toBe("IST");
+    expect(normalized.flagZeroedGaid).toBe(true);
     expect(normalized.thresholds.carrierIpThreshold).toBe(15);
     expect(normalized.thresholds.deviceModelClusterThreshold).toBe(12);
     expect(normalized.thresholds.sdkMismatchMinSample).toBe(7);
@@ -43,6 +46,22 @@ describe("normalizeSettings", () => {
     expect(normalized.thresholds.uniformTimingMinCount).toBe(8);
     expect(normalized.thresholds.uniformTimingBucketSeconds).toBe(10);
     expect(normalized.thresholds.ctitClickInjectSec).toBe(10);
+    expect(normalized.thresholds.outdatedOsMaxMajor).toEqual({ android: 9, ios: 9 });
+  });
+
+  it("migrates intermediate branch funnel shape ({ name, label?, order? })", () => {
+    const intermediate = {
+      funnelStages: [
+        { name: "step_pay", order: 2, label: "Payment" },
+        { name: "step_reg", order: 1, label: "Register" },
+      ],
+    };
+
+    const normalized = normalizeSettings(intermediate);
+    expect(normalized.funnelStages).toEqual([
+      { label: "Register", eventNames: ["step_reg"], optional: false },
+      { label: "Payment", eventNames: ["step_pay"], optional: false },
+    ]);
   });
 
   it("handles empty geos and blank profile", () => {
@@ -52,11 +71,25 @@ describe("normalizeSettings", () => {
     expect(blank.timezoneLabel).toBe("UTC");
   });
 
+  it("supports null to disable outdated OS checks per platform", () => {
+    const disabledIos = normalizeSettings({
+      thresholds: {
+        outdatedOsMaxMajor: {
+          android: 8,
+          ios: null,
+        },
+      },
+    });
+    expect(disabledIos.thresholds.outdatedOsMaxMajor.android).toBe(8);
+    expect(disabledIos.thresholds.outdatedOsMaxMajor.ios).toBeNull();
+  });
+
   it("repairs invalid or negative threshold numbers defensively", () => {
     const corrupted = {
       schemaVersion: 2,
       geos: [{ country: "in", knownCarriers: ["Jio"] }],
-      funnelStages: [{ name: "af_login", order: 0 }],
+      funnelStages: [{ label: "Login", eventNames: ["af_login"] }],
+      flagZeroedGaid: false,
       thresholds: {
         ctitClickInjectSec: -5,
         ctitClickFloodDays: NaN,
@@ -70,6 +103,7 @@ describe("normalizeSettings", () => {
 
     const normalized = normalizeSettings(corrupted);
     expect(normalized.geos[0].country).toBe("IN");
+    expect(normalized.flagZeroedGaid).toBe(false);
     expect(normalized.thresholds.ctitClickInjectSec).toBe(
       DEFAULT_SETTINGS.thresholds.ctitClickInjectSec,
     );
@@ -78,6 +112,6 @@ describe("normalizeSettings", () => {
     );
     expect(normalized.thresholds.ipFarmThreshold).toBe(DEFAULT_SETTINGS.thresholds.ipFarmThreshold);
     expect(normalized.thresholds.outdatedOsMaxMajor.android).toBe(9);
-    expect(normalized.thresholds.outdatedOsMaxMajor.ios).toBe(14);
+    expect(normalized.thresholds.outdatedOsMaxMajor.ios).toBe(9);
   });
 });
