@@ -170,8 +170,7 @@ function runStepCommand(name, commandString) {
       skipKind: null,
       exitCode,
       durationMs,
-      durationStr:
-        durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(2)}s`,
+      durationStr: durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(2)}s`,
       log: combinedLog,
       error: res.error ? res.error.message : null,
       reason: null,
@@ -322,8 +321,7 @@ function runSecurityScan() {
     skipKind: null,
     exitCode: isPass ? 0 : 1,
     durationMs,
-    durationStr:
-      durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(2)}s`,
+    durationStr: durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(2)}s`,
     log: logLines.join("\n"),
     error: isPass ? null : `Detected ${hits.length} forbidden credential or pattern hits`,
     reason: null,
@@ -338,7 +336,7 @@ const steps = [];
 console.log(`[verify] Starting quality gate run: ${runId}`);
 
 // Step 1: Install
-console.log(`[verify] 1/6 Running install check (bun install --frozen-lockfile)...`);
+console.log(`[verify] 1/7 Running install check (bun install --frozen-lockfile)...`);
 const installStep = runStepCommand("install", "bun install --frozen-lockfile");
 if (installStep.status === "FAIL") {
   installStep.log +=
@@ -348,13 +346,19 @@ writeFileSync(join(logsDir, "install.log"), installStep.log, "utf8");
 steps.push(installStep);
 
 // Step 2: Lint
-console.log(`[verify] 2/6 Running linter (bun run lint)...`);
+console.log(`[verify] 2/7 Running linter (bun run lint)...`);
 const lintStep = runStepCommand("lint", "bun run lint");
 writeFileSync(join(logsDir, "lint.log"), lintStep.log, "utf8");
 steps.push(lintStep);
 
-// Step 3: Build & Index Verification
-console.log(`[verify] 3/6 Running build (bun run build)...`);
+// Step 3: Typecheck
+console.log(`[verify] 3/7 Running typecheck (bun run typecheck)...`);
+const typecheckStep = runStepCommand("typecheck", "bun run typecheck");
+writeFileSync(join(logsDir, "typecheck.log"), typecheckStep.log, "utf8");
+steps.push(typecheckStep);
+
+// Step 4: Build & Index Verification
+console.log(`[verify] 4/7 Running build (bun run build)...`);
 const buildStep = runStepCommand("build", "bun run build");
 const indexPath = join(repoRoot, "dist", "client", "index.html");
 const indexExists = existsSync(indexPath);
@@ -371,15 +375,15 @@ buildStep.indexHtmlVerified = indexExists;
 writeFileSync(join(logsDir, "build.log"), buildStep.log, "utf8");
 steps.push(buildStep);
 
-// Step 4: Unit & Drift Tests
-console.log(`[verify] 4/6 Running unit & drift tests (bun run test)...`);
+// Step 5: Unit & Drift Tests
+console.log(`[verify] 5/7 Running unit & drift tests (bun run test)...`);
 const unitStep = runStepCommand("unit-tests", "bun run test");
 unitStep.parsedCounts = parseVitestOutput(unitStep.log);
 writeFileSync(join(logsDir, "unit-tests.log"), unitStep.log, "utf8");
 steps.push(unitStep);
 
-// Step 5: Rules Tests (Emulator)
-console.log(`[verify] 5/6 Checking rules tests...`);
+// Step 6: Rules Tests (Emulator)
+console.log(`[verify] 6/7 Checking rules tests...`);
 let rulesStep;
 if (skipRules) {
   rulesStep = {
@@ -418,8 +422,8 @@ if (skipRules) {
 writeFileSync(join(logsDir, "rules-tests.log"), rulesStep.log, "utf8");
 steps.push(rulesStep);
 
-// Step 6: Security Scan
-console.log(`[verify] 6/6 Running repository security scan...`);
+// Step 7: Security Scan
+console.log(`[verify] 7/7 Running repository security scan...`);
 const secStep = runSecurityScan();
 writeFileSync(join(logsDir, "security-scan.log"), secStep.log, "utf8");
 steps.push(secStep);
@@ -488,11 +492,7 @@ const reportData = {
   },
 };
 
-writeFileSync(
-  join(runDir, "report.json"),
-  JSON.stringify(reportData, null, 2),
-  "utf8",
-);
+writeFileSync(join(runDir, "report.json"), JSON.stringify(reportData, null, 2), "utf8");
 
 // Build report.md
 let md = `# Quality Gate Verification Report: \`${runId}\`\n\n`;

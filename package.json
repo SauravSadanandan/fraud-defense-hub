@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "test": "vitest run --exclude tests/rules/firestore.rules.test.ts",
     "test:rules": "firebase emulators:exec --only firestore --project demo-farg \"vitest run tests/rules/firestore.rules.test.ts\"",
+    "typecheck": "tsc --noEmit",
     "verify": "bun scripts/run-checks.mjs"
   },
   "dependencies": {
