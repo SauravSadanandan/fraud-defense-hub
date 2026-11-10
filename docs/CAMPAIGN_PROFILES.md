@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-The **Campaign Profiles** system replaces hard-coded geographical and carrier assumptions in Fraud Defense Hub with flexible, persistent configurations stored in Firestore (`campaign_profiles` collection) and managed by administrators and analysts.
+The **Campaign Profiles** system replaces hard-coded geographical and carrier assumptions in Opscore Argus with flexible, persistent configurations stored in Firestore (`campaign_profiles` collection) and managed by administrators and analysts.
 
 Campaign profiles allow fraud analysis runs to be configured per region, per partner, and per campaign without altering engine code. When users upload AppsFlyer exports, an automatic single-pass file scan detects country distribution, carriers, and event names to suggest or prefill configuration settings.
 

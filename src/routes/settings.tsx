@@ -12,12 +12,16 @@ import { ProfilesTab } from "@/components/profiles/ProfilesTab";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/settings")({
-  head: () => ({
-    meta: [
-      { title: "Settings · Fraud Defense Hub" },
-      { name: "description", content: "Team members, roles and access control settings." },
-    ],
-  }),
+  head: () => {
+    const isStaging = import.meta.env.VITE_APP_ENV === "staging";
+    const title = isStaging ? "[STAGING] Settings · Opscore Argus" : "Settings · Opscore Argus";
+    return {
+      meta: [
+        { title },
+        { name: "description", content: "Team members, roles and access control settings." },
+      ],
+    };
+  },
   component: SettingsPage,
 });
 

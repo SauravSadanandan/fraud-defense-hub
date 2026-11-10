@@ -1,5 +1,5 @@
 /**
- * Permission catalog for Fraud Defense Hub (Single Source of Truth).
+ * Permission catalog for Opscore Argus (Single Source of Truth).
  * All permissions defined here correspond to UI capabilities and server-side
  * Firestore Security Rules.
  */

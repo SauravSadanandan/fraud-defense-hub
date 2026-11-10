@@ -7,10 +7,9 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { ThemeProvider } from "../lib/theme";
 import { AuthProvider } from "../lib/auth";
 import { Toaster } from "../components/ui/sonner";
@@ -41,9 +40,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -79,18 +75,18 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => {
     const isStaging = import.meta.env.VITE_APP_ENV === "staging";
-    const title = isStaging ? "[STAGING] Lovable App" : "Lovable App";
+    const title = isStaging ? "[STAGING] Opscore Argus" : "Opscore Argus";
+    const description = "Opscore Argus — Advanced Mobile Ad Fraud Analyzer";
     const meta: Array<Record<string, string>> = [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
+      { name: "description", content: description },
+      { name: "author", content: "Opscore Argus" },
       { property: "og:title", content: title },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:description", content: description },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
     ];
     if (isStaging) {
       meta.push({ name: "robots", content: "noindex,nofollow" });

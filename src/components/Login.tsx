@@ -53,11 +53,9 @@ export function Login() {
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <BrandMark showText={false} className="scale-125" />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">AppsFlyer PAF Fraud Analysis</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Opscore Argus</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {mode === "login"
-                ? "Sign in to access the anti-fraud console"
-                : "Reset your console password"}
+              {mode === "login" ? "Fraud Analyzer" : "Reset your console password"}
             </p>
           </div>
         </div>
