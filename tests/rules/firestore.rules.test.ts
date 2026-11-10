@@ -16,6 +16,7 @@ import {
   getDocs,
   collection,
   serverTimestamp,
+  FieldPath,
 } from "firebase/firestore";
 
 const PROJECT_ID = "demo-farg";
@@ -310,9 +311,11 @@ describe.skipIf(!emulatorAvailable)("Firestore Security Rules", () => {
     // Dynamically grant analysis.delete
     await testEnv.withSecurityRulesDisabled(async (context) => {
       const db = context.firestore();
-      await updateDoc(doc(db, "roles", "analyst"), {
-        "permissions.analysis.delete": true,
-      });
+      await updateDoc(
+        doc(db, "roles", "analyst"),
+        new FieldPath("permissions", "analysis.delete"),
+        true,
+      );
     });
 
     // Now delete succeeds
