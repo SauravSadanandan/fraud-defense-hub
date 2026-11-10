@@ -235,6 +235,7 @@ function runSecurityScan() {
     ".git",
     ".output",
     ".vinxi",
+    "sample-data",
   ]);
 
   function walk(dir) {
@@ -330,13 +331,164 @@ function runSecurityScan() {
   };
 }
 
+// 6b. Environment Isolation Checker
+function runEnvIsolationCheck() {
+  const startTime = Date.now();
+  const logLines = [];
+  const errors = [];
+
+  const requiredKeys = [
+    "VITE_APP_ENV",
+    "VITE_FIREBASE_API_KEY",
+    "VITE_FIREBASE_AUTH_DOMAIN",
+    "VITE_FIREBASE_PROJECT_ID",
+    "VITE_FIREBASE_STORAGE_BUCKET",
+    "VITE_FIREBASE_MESSAGING_SENDER_ID",
+    "VITE_FIREBASE_APP_ID",
+  ];
+
+  function parseEnvFile(filePath) {
+    if (!existsSync(filePath)) {
+      errors.push(`Missing env file: ${relative(repoRoot, filePath)}`);
+      return {};
+    }
+    const content = readFileSync(filePath, "utf8");
+    const map = {};
+    for (const rawLine of content.split("\n")) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eqIdx = line.indexOf("=");
+      if (eqIdx !== -1) {
+        const k = line.slice(0, eqIdx).trim();
+        const v = line.slice(eqIdx + 1).trim();
+        map[k] = v;
+      }
+    }
+    return map;
+  }
+
+  const prodEnvPath = join(repoRoot, ".env.production");
+  const stagingEnvPath = join(repoRoot, ".env.staging");
+
+  const prodEnv = parseEnvFile(prodEnvPath);
+  const stagingEnv = parseEnvFile(stagingEnvPath);
+
+  for (const k of requiredKeys) {
+    if (!prodEnv[k]) errors.push(`.env.production missing required key: ${k}`);
+    if (!stagingEnv[k]) errors.push(`.env.staging missing required key: ${k}`);
+  }
+
+  if (prodEnv["VITE_APP_ENV"] !== "production") {
+    errors.push(
+      `.env.production VITE_APP_ENV is "${prodEnv["VITE_APP_ENV"]}", expected "production"`,
+    );
+  }
+  if (stagingEnv["VITE_APP_ENV"] !== "staging") {
+    errors.push(`.env.staging VITE_APP_ENV is "${stagingEnv["VITE_APP_ENV"]}", expected "staging"`);
+  }
+
+  for (const [k, v] of Object.entries(prodEnv)) {
+    if (v.includes("REPLACE") || v.includes("<<")) {
+      errors.push(`.env.production key "${k}" contains placeholder token: "${v}"`);
+    }
+  }
+  for (const [k, v] of Object.entries(stagingEnv)) {
+    if (v.includes("REPLACE") || v.includes("<<")) {
+      errors.push(`.env.staging key "${k}" contains placeholder token: "${v}"`);
+    }
+  }
+
+  const prodProjectId = prodEnv["VITE_FIREBASE_PROJECT_ID"];
+  const stagingProjectId = stagingEnv["VITE_FIREBASE_PROJECT_ID"];
+  if (prodProjectId && stagingProjectId && prodProjectId === stagingProjectId) {
+    errors.push(
+      `VITE_FIREBASE_PROJECT_ID must differ between environments (both are "${prodProjectId}")`,
+    );
+  }
+
+  logLines.push(`[env-isolation] .env.production project: ${prodProjectId || "MISSING"}`);
+  logLines.push(`[env-isolation] .env.staging project: ${stagingProjectId || "MISSING"}`);
+
+  const clientDir = join(repoRoot, "dist", "client");
+  if (!existsSync(clientDir)) {
+    errors.push(`dist/client directory not found to verify environment isolation`);
+  } else {
+    let foundProdId = false;
+    let foundStagingId = false;
+
+    function searchDir(dir) {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          searchDir(full);
+        } else if (entry.isFile()) {
+          try {
+            const txt = readFileSync(full, "utf8");
+            if (prodProjectId && txt.includes(prodProjectId)) foundProdId = true;
+            if (stagingProjectId && txt.includes(stagingProjectId)) foundStagingId = true;
+          } catch {
+            /* ignore binary files */
+          }
+        }
+      }
+    }
+
+    searchDir(clientDir);
+
+    if (!foundProdId) {
+      errors.push(`Production project id "${prodProjectId}" NOT found in dist/client build output`);
+    } else {
+      logLines.push(
+        `[env-isolation] Confirmed production project id "${prodProjectId}" present in dist/client`,
+      );
+    }
+
+    if (foundStagingId) {
+      errors.push(
+        `Staging project id "${stagingProjectId}" LEAKED into production dist/client build output!`,
+      );
+    } else {
+      logLines.push(
+        `[env-isolation] Confirmed staging project id "${stagingProjectId}" absent from dist/client`,
+      );
+    }
+  }
+
+  const durationMs = Date.now() - startTime;
+  const isPass = errors.length === 0;
+
+  if (isPass) {
+    logLines.push("[env-isolation] Environment isolation checks passed successfully.");
+  } else {
+    for (const err of errors) {
+      logLines.push(`[env-isolation FAIL] ${err}`);
+    }
+  }
+
+  return {
+    name: "env-isolation",
+    command: "internal environment isolation verifier",
+    status: isPass ? "PASS" : "FAIL",
+    skipKind: null,
+    exitCode: isPass ? 0 : 1,
+    durationMs,
+    durationStr: durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(2)}s`,
+    log: logLines.join("\n"),
+    error: isPass ? null : errors.join("; "),
+    reason: null,
+    prodProjectId: prodProjectId || null,
+    stagingProjectId: stagingProjectId || null,
+  };
+}
+
 // 7. Run Verification Steps
 const steps = [];
 
 console.log(`[verify] Starting quality gate run: ${runId}`);
 
 // Step 1: Install
-console.log(`[verify] 1/7 Running install check (bun install --frozen-lockfile)...`);
+console.log(`[verify] 1/8 Running install check (bun install --frozen-lockfile)...`);
 const installStep = runStepCommand("install", "bun install --frozen-lockfile");
 if (installStep.status === "FAIL") {
   installStep.log +=
@@ -346,19 +498,19 @@ writeFileSync(join(logsDir, "install.log"), installStep.log, "utf8");
 steps.push(installStep);
 
 // Step 2: Lint
-console.log(`[verify] 2/7 Running linter (bun run lint)...`);
+console.log(`[verify] 2/8 Running linter (bun run lint)...`);
 const lintStep = runStepCommand("lint", "bun run lint");
 writeFileSync(join(logsDir, "lint.log"), lintStep.log, "utf8");
 steps.push(lintStep);
 
 // Step 3: Typecheck
-console.log(`[verify] 3/7 Running typecheck (bun run typecheck)...`);
+console.log(`[verify] 3/8 Running typecheck (bun run typecheck)...`);
 const typecheckStep = runStepCommand("typecheck", "bun run typecheck");
 writeFileSync(join(logsDir, "typecheck.log"), typecheckStep.log, "utf8");
 steps.push(typecheckStep);
 
 // Step 4: Build & Index Verification
-console.log(`[verify] 4/7 Running build (bun run build)...`);
+console.log(`[verify] 4/8 Running build (bun run build)...`);
 const buildStep = runStepCommand("build", "bun run build");
 const indexPath = join(repoRoot, "dist", "client", "index.html");
 const indexExists = existsSync(indexPath);
@@ -375,15 +527,21 @@ buildStep.indexHtmlVerified = indexExists;
 writeFileSync(join(logsDir, "build.log"), buildStep.log, "utf8");
 steps.push(buildStep);
 
-// Step 5: Unit & Drift Tests
-console.log(`[verify] 5/7 Running unit & drift tests (bun run test)...`);
+// Step 5: Environment Isolation Check
+console.log(`[verify] 5/8 Running environment isolation check...`);
+const envIsoStep = runEnvIsolationCheck();
+writeFileSync(join(logsDir, "env-isolation.log"), envIsoStep.log, "utf8");
+steps.push(envIsoStep);
+
+// Step 6: Unit & Drift Tests
+console.log(`[verify] 6/8 Running unit & drift tests (bun run test)...`);
 const unitStep = runStepCommand("unit-tests", "bun run test");
 unitStep.parsedCounts = parseVitestOutput(unitStep.log);
 writeFileSync(join(logsDir, "unit-tests.log"), unitStep.log, "utf8");
 steps.push(unitStep);
 
-// Step 6: Rules Tests (Emulator)
-console.log(`[verify] 6/7 Checking rules tests...`);
+// Step 7: Rules Tests (Emulator)
+console.log(`[verify] 7/8 Checking rules tests...`);
 let rulesStep;
 if (skipRules) {
   rulesStep = {
@@ -422,8 +580,8 @@ if (skipRules) {
 writeFileSync(join(logsDir, "rules-tests.log"), rulesStep.log, "utf8");
 steps.push(rulesStep);
 
-// Step 7: Security Scan
-console.log(`[verify] 7/7 Running repository security scan...`);
+// Step 8: Security Scan
+console.log(`[verify] 8/8 Running repository security scan...`);
 const secStep = runSecurityScan();
 writeFileSync(join(logsDir, "security-scan.log"), secStep.log, "utf8");
 steps.push(secStep);
@@ -485,6 +643,8 @@ const reportData = {
     reason: s.reason,
     parsedCounts: s.parsedCounts || null,
     indexHtmlVerified: s.indexHtmlVerified ?? null,
+    prodProjectId: s.prodProjectId || null,
+    stagingProjectId: s.stagingProjectId || null,
   })),
   securityScan: {
     scannedFilesCount: secStep.scannedFilesCount,
@@ -545,6 +705,11 @@ for (const s of steps) {
   let details = "—";
   if (s.name === "build") {
     details = `index.html: ${s.indexHtmlVerified ? "verified" : "missing"}`;
+  } else if (s.name === "env-isolation") {
+    details =
+      s.status === "PASS"
+        ? `prod: ${s.prodProjectId}; staging: ${s.stagingProjectId}`
+        : "isolation error";
   } else if (s.parsedCounts) {
     details = `Files: ${s.parsedCounts.testFiles}; Tests: ${s.parsedCounts.tests}`;
   } else if (s.name === "security-scan") {
