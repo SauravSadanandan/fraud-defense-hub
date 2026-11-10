@@ -4,16 +4,53 @@ import { getFirestore, connectFirestoreEmulator, type Firestore } from "firebase
 
 // Firebase web config is a PUBLIC identifier set — safe to commit.
 // Your data is protected by Firebase Auth + Firestore Security Rules,
-// not by hiding these values. See firestore.rules / DEPLOY.md.
-export const firebaseConfig = {
-  apiKey: "AIzaSyCkwRb-GfPCgqKcAOwRUGvWH8xtv1zL128",
-  authDomain: "farg-e74ca.firebaseapp.com",
-  projectId: "farg-e74ca",
-  storageBucket: "farg-e74ca.firebasestorage.app",
-  messagingSenderId: "833090159651",
-  appId: "1:833090159651:web:34525c5d283e9ab1139d96",
-  measurementId: "G-QWWXJERBZ9",
+// not by hiding these values. See firestore.rules / DEPLOY.md / docs/ENVIRONMENTS.md.
+
+export const APP_ENV = (import.meta.env.VITE_APP_ENV || "") as "production" | "staging";
+
+export interface FirebaseWebConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  storageBucket: string;
+  messagingSenderId: string;
+  appId: string;
+  measurementId?: string;
+}
+
+export const firebaseConfig: FirebaseWebConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+  ...(import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+    ? { measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID }
+    : {}),
 };
+
+function validateFirebaseEnv(): void {
+  if (APP_ENV !== "production" && APP_ENV !== "staging") {
+    throw new Error(
+      `[Firebase] Invalid VITE_APP_ENV: "${APP_ENV}". Expected "production" or "staging". Check your environment configuration.`,
+    );
+  }
+  const required: Array<keyof FirebaseWebConfig> = [
+    "apiKey",
+    "authDomain",
+    "projectId",
+    "storageBucket",
+    "messagingSenderId",
+    "appId",
+  ];
+  const missing = required.filter((key) => !firebaseConfig[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `[Firebase] Missing required Firebase configuration keys for environment "${APP_ENV}": ${missing.join(", ")}. Verify your .env.${APP_ENV} file.`,
+    );
+  }
+}
 
 let _app: FirebaseApp | null = null;
 let _auth: Auth | null = null;
@@ -23,6 +60,7 @@ let _db: Firestore | null = null;
 export function getFirebase(): { app: FirebaseApp; auth: Auth; db: Firestore } | null {
   if (typeof window === "undefined") return null;
   if (!_app) {
+    validateFirebaseEnv();
     const existing = getApps().find((a) => a.name === "[DEFAULT]");
     _app = existing || initializeApp(firebaseConfig);
     _auth = getAuth(_app);
@@ -49,6 +87,7 @@ export function getFirebase(): { app: FirebaseApp; auth: Auth; db: Firestore } |
  * to create new user accounts without affecting the primary signed-in session.
  */
 export function createSecondaryAuth(): { auth: Auth; cleanup: () => Promise<void> } {
+  validateFirebaseEnv();
   const name = "invite-secondary";
   const existing = getApps().find((a) => a.name === name);
   const secondaryApp = existing || initializeApp(firebaseConfig, name);

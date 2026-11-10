@@ -16,6 +16,11 @@ dist-ssr
 .nitro
 *.local
 
+# Environment variables (allow only public production and staging env files)
+.env*
+!.env.production
+!.env.staging
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
@@ -33,4 +38,7 @@ dist-ssr
 
 # Verification test history (local only)
 /test-history/
+
+# Synthetic sample data (local only)
+/sample-data/
 

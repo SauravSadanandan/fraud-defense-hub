@@ -4,14 +4,16 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
+    "dev": "vite dev --mode staging",
     "build": "vite build",
-    "build:dev": "vite build --mode development",
+    "build:staging": "vite build --mode staging",
+    "build:dev": "vite build --mode staging",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run --exclude tests/rules/firestore.rules.test.ts",
     "test:rules": "firebase emulators:exec --only firestore --project demo-farg \"vitest run tests/rules/firestore.rules.test.ts\"",
+    "sample-data": "bun scripts/make-sample-data.ts",
     "typecheck": "tsc --noEmit",
     "verify": "bun scripts/run-checks.mjs"
   },

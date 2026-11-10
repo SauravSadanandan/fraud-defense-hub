@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "farg-e74ca"
+    "default": "farg-e74ca",
+    "staging": "farg-e74ca",
+    "production": "opscore-argus"
   }
 }

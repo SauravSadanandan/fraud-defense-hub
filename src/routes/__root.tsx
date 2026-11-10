@@ -14,6 +14,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { ThemeProvider } from "../lib/theme";
 import { AuthProvider } from "../lib/auth";
 import { Toaster } from "../components/ui/sonner";
+import { EnvBanner } from "../components/EnvBanner";
 
 function NotFoundComponent() {
   return (
@@ -76,26 +77,34 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  head: () => ({
-    meta: [
+  head: () => {
+    const isStaging = import.meta.env.VITE_APP_ENV === "staging";
+    const title = isStaging ? "[STAGING] Lovable App" : "Lovable App";
+    const meta: Array<Record<string, string>> = [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
+      { title },
       { name: "description", content: "Lovable Generated Project" },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
+      { property: "og:title", content: title },
       { property: "og:description", content: "Lovable Generated Project" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
-    ],
-    links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
-    ],
-  }),
+    ];
+    if (isStaging) {
+      meta.push({ name: "robots", content: "noindex,nofollow" });
+    }
+    return {
+      meta,
+      links: [
+        {
+          rel: "stylesheet",
+          href: appCss,
+        },
+      ],
+    };
+  },
   shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
@@ -123,6 +132,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
+          <EnvBanner />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
           <Toaster richColors position="top-right" />

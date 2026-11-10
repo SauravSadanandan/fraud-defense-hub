@@ -7,4 +7,5 @@ package-lock.json
 bun.lock
 routeTree.gen.ts
 test-history
+sample-data
 
