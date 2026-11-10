@@ -3,6 +3,8 @@
 This runbook guides project administrators through the zero-downtime cutover from legacy hardcoded client credentials to Firebase Authentication with server-enforced role-based access control (RBAC) in Cloud Firestore.
 
 > **CRITICAL**: Never commit real user credentials, private keys, or actual administrator UIDs to this public repository. All values shown below are synthetic placeholders (`<ADMIN_UID>`, `<ADMIN_EMAIL>`, etc.).
+>
+> **NOTE**: Always rehearse this rollout on the isolated **Staging** environment (`farg-e74ca`) first before applying it to **Production** (`opscore-argus`). Refer to [ENVIRONMENTS.md](ENVIRONMENTS.md) for environment details.
 
 ---
 

@@ -16,9 +16,9 @@ Access to this application is controlled through a server-enforced profile archi
 
 ---
 
-## 2. Firebase Web Configuration
+## 2. Firebase Web Configuration & Environments
 
-The Firebase web configuration is present in `src/lib/firebase.ts`. The web configuration (`apiKey`, `authDomain`, `projectId`, etc.) is a public identifier set safe to commit; all data access is strictly governed by Firebase Authentication and Firestore Security Rules.
+The application supports two isolated environments: **Staging** (`farg-e74ca`) and **Production** (`opscore-argus`). Web configuration identifiers are stored in `.env.staging` and `.env.production` and injected into `src/lib/firebase.ts`. For complete details on environment isolation, promotion workflows, and CI guards, refer to [ENVIRONMENTS.md](docs/ENVIRONMENTS.md). Web identifiers are public; all data access is strictly governed by Firebase Authentication and Firestore Security Rules.
 
 ---
 
@@ -37,6 +37,7 @@ In the [Firebase Console](https://console.firebase.google.com/):
 
 > [!CAUTION]
 > **DO NOT deploy strict `firestore.rules` via the CLI or Console until:**
+>
 > 1. The first administrator profile document (`users/{uid}`) has been manually created in Cloud Firestore.
 > 2. The updated client application has been deployed and is live.
 > 3. A test analyst account has been invited, approved, and verified.
@@ -44,6 +45,7 @@ In the [Firebase Console](https://console.firebase.google.com/):
 > Prematurely deploying strict rules will immediately lock all operators out of existing analysis datasets and publisher mappings.
 
 Follow the ordered procedure in [SECURITY_ROLLOUT.md](docs/SECURITY_ROLLOUT.md):
+
 1. Publish `firestore.rules.transitional` via the **Firebase Console → Firestore Database → Rules** editor. This keeps existing datasets accessible while establishing strict rules on user profiles and roles.
 2. Deploy the updated client application and seed the initial administrator and roles.
 3. Once verified, copy the contents of `firestore.rules` into the Firebase Console Rules editor and click **Publish**.
@@ -68,9 +70,11 @@ firebase deploy --only firestore:rules --project farg-e74ca
 ## 5. Web Application Hosting
 
 ### Automated Deployment (Recommended)
+
 Continuous Deployment is configured via GitHub Actions (`.github/workflows/firebase-deploy.yml`) on every push or merge to `main`. It builds the static bundle and deploys `dist/client` to Firebase Hosting.
 
 ### Manual Deployment
+
 To build and deploy manually:
 
 ```bash
@@ -103,18 +107,21 @@ bun run verify --keep 10                    # Retain only the 10 newest runs
 ```
 
 ### What `bun run verify` checks:
+
 1. **`install`**: Verifies dependency lockfile integrity via `bun install --frozen-lockfile`.
 2. **`lint`**: Runs ESLint and Prettier style audits via `bun run lint`.
 3. **`build`**: Executes `bun run build` and verifies `dist/client/index.html` exists.
 4. **`unit-tests`**: Runs unit and drift tests via `bun run test` without requiring local emulators.
 5. **`rules-tests`**: Runs Firestore security rules tests against the local emulator suite with project id `demo-farg` via `bun run test:rules`.
-   - *Note*: Emulator tests run strictly offline, never touch production, require no Firebase login, and require Java and the Firebase CLI. If Java or Firebase is missing from PATH, the runner skips this step with an explicit logged explanation.
+   - _Note_: Emulator tests run strictly offline, never touch production, require no Firebase login, and require Java and the Firebase CLI. If Java or Firebase is missing from PATH, the runner skips this step with an explicit logged explanation.
 6. **`security-scan`**: Scans all source files, documentation, rules, and configuration for deprecated hardcoded credentials, test tokens, or private email domains.
 
 All test runs write persistent, timestamped markdown and JSON records into the local, git-ignored `test-history/` folder, appending to `test-history/INDEX.md` and updating `test-history/LATEST.md`.
 
 ### Verification Verdicts & Exit Codes
+
 The quality runner evaluates three distinct outcomes:
+
 - **`PASS` (exit code `0`)**: All verification steps executed and passed cleanly. If any step was skipped, it was explicitly requested via flag (e.g., `--skip-rules`).
 - **`FAIL` (exit code `1`)**: One or more executed verification steps encountered errors (lockfile drift, lint violations, build errors, test failures, or security scan detections).
 - **`INCOMPLETE` (exit code `2`)**: No steps failed, but one or more steps (such as `rules-tests`) were skipped due to missing environment prerequisites (e.g., Java Runtime or Firebase CLI) without an explicit skip flag. To resolve, install the required tools or run with `--skip-rules`.
@@ -128,9 +135,9 @@ Once strict rules and the updated client are live in production, complete these 
 - [ ] **Disable Anonymous Sign-in**: In **Firebase Console → Authentication → Sign-in method**, disable Anonymous sign-in.
 - [ ] **Enforce Password Policy**: In **Authentication → Settings → Password policy**, enforce a minimum length of 12+ characters with mixed case, numbers, and symbols.
 - [ ] **Restrict Google API Key**: In **Google Cloud Console → APIs & Services → Credentials**, restrict the web client key to your application HTTP referrers (`https://farg-e74ca.web.app/*`, `https://farg-e74ca.firebaseapp.com/*`, and custom domains). If API restrictions are used, permit only:
-  - *Identity Toolkit API*
-  - *Token Service API*
-  - *Cloud Firestore API*
+  - _Identity Toolkit API_
+  - _Token Service API_
+  - _Cloud Firestore API_
 - [ ] **Review Authorized Domains**: In **Authentication → Settings → Authorized domains**, ensure only authorized production/staging domains and `localhost` are listed.
 
 For step-by-step guidance, consult [SECURITY_ROLLOUT.md](docs/SECURITY_ROLLOUT.md).
