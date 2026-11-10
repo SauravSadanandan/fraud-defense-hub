@@ -90,7 +90,7 @@ This runbook guides project administrators through the zero-downtime cutover fro
     - Under **Application restrictions**, select **Websites** and add your production and staging domains:
       - `https://<YOUR_PROJECT_ID>.web.app/*`
       - `https://<YOUR_PROJECT_ID>.firebaseapp.com/*`
-      - Any custom domains linked to Lovable or production.
+      - Any custom domains linked to staging or production.
     - Under **API restrictions**, restrict the key to only:
       - _Firebase Authentication API_
       - _Cloud Firestore API_
