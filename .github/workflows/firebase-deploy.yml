@@ -35,10 +35,22 @@ jobs:
           echo "✅ index.html generated correctly"
           ls -la dist/client
 
+      - name: Environment isolation guard
+        run: |
+          if grep -rq "farg-e74ca" dist/client; then
+            echo "❌ Staging project id found in production build!"
+            exit 1
+          fi
+          if ! grep -rq "opscore-argus" dist/client; then
+            echo "❌ Production project id not found in production build!"
+            exit 1
+          fi
+          echo "✅ Production environment isolation verified"
+
       - name: Deploy to Firebase
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: "${{ secrets.GITHUB_TOKEN }}"
-          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
-          projectId: farg-e74ca
+          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}"
+          projectId: opscore-argus
           channelId: live

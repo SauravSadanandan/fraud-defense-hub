@@ -1,0 +1,65 @@
+name: Deploy to Firebase Hosting (Staging)
+on:
+  push:
+    branches:
+      - staging
+
+concurrency:
+  group: firebase-deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Run Tests
+        run: bun run test
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Build Staging Project
+        run: bun run build:staging
+
+      - name: Verify build output
+        run: |
+          if [ ! -f dist/client/index.html ]; then
+            echo "❌ index.html not found in dist/client/"
+            exit 1
+          fi
+          echo "✅ index.html generated correctly"
+          ls -la dist/client
+
+      - name: Environment isolation guard
+        run: |
+          if grep -rq "opscore-argus" dist/client; then
+            echo "❌ Production project id found in staging build!"
+            exit 1
+          fi
+          if ! grep -rq "farg-e74ca" dist/client; then
+            echo "❌ Staging project id not found in staging build!"
+            exit 1
+          fi
+          echo "✅ Staging environment isolation verified"
+
+      - name: Deploy to Firebase
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}"
+          projectId: farg-e74ca
+          channelId: live
